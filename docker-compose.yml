@@ -1,0 +1,15 @@
+services:
+  bot:
+    build: .
+    container_name: tamir-currency-bot
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Ollama runs on the host machine (uses the Mac's GPU); reach it from inside the container
+      OLLAMA_URL: http://host.docker.internal:11434
+      DATA_DIR: /app/data
+    extra_hosts:
+      # Makes host.docker.internal work on Linux too (built in on Mac/Windows)
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./data:/app/data
