@@ -7,6 +7,8 @@ import httpx
 import pytest
 
 from bot import handlers
+from bot.nlu import Interpretation
+from bot.ollama import OllamaUnavailableError
 from bot.parser import ParsedPrice
 from bot.rates import RatesClient
 from bot.storage import UserPrefs
@@ -14,7 +16,7 @@ from bot.storage import UserPrefs
 RATES_RESPONSE = {
     "result": "success",
     "time_last_update_unix": 1760000000,
-    "rates": {"USD": 1, "ILS": 3.7, "EUR": 0.9, "VND": 26000, "MXN": 18, "ARS": 1400},
+    "rates": {"USD": 1, "ILS": 3.7, "EUR": 0.9, "VND": 26000, "MXN": 18, "ARS": 1400, "THB": 33},
 }
 
 
@@ -31,7 +33,9 @@ def services(tmp_path):
         allow_list=SimpleNamespace(name_of=lambda uid: "תמיר"),
         prefs=UserPrefs(tmp_path / "user_prefs.json", "ILS"),
         rates=rates,
+        ollama=None,
         vision=SimpleNamespace(extract_price=AsyncMock()),
+        nlu=SimpleNamespace(interpret=AsyncMock()),
     )
 
 
@@ -48,12 +52,14 @@ def _update(text=None, caption=None, photo=False):
     )
 
 
-def _context(services, args=None):
+def _context(services, args=None, user_data=None):
+    """Stub context. Pass the same `user_data` dict across calls to keep conversation memory."""
     file = SimpleNamespace(download_as_bytearray=AsyncMock(return_value=bytearray(b"img")))
     return SimpleNamespace(
         application=SimpleNamespace(bot_data={"services": services}),
         args=args,
         bot=SimpleNamespace(get_file=AsyncMock(return_value=file)),
+        user_data={} if user_data is None else user_data,
     )
 
 
@@ -169,3 +175,126 @@ async def test_button_rejects_unknown_code(services):
     await handlers.currency_button(u, _context(services))
     assert services.prefs.get_currency(7) == "ILS"
     u.callback_query.edit_message_text.assert_not_called()
+
+
+# --- Language-model flow ---
+
+
+async def test_parsable_text_skips_language_model(services):
+    await handlers.text_msg(_update("100 USD"), _context(services))
+    services.nlu.interpret.assert_not_called()
+
+
+async def test_unparsable_text_goes_to_language_model(services):
+    services.nlu.interpret.return_value = Interpretation("convert", 30, "EUR", "USD")
+    u = _update("כמה זה 30 יורו בדולרים?")
+    await handlers.text_msg(u, _context(services))
+    assert "33.33" in _reply_text(u)  # one-off target USD: 30 EUR = 33.33 USD
+    assert services.prefs.get_currency(7) == "ILS"  # setting unchanged
+
+
+async def test_clarify_then_answer_uses_history(services):
+    user_data = {}
+    services.nlu.interpret.return_value = Interpretation("clarify", question="כמה יורו?")
+    u = _update("תמיר רוצה להמיר יורו")
+    await handlers.text_msg(u, _context(services, user_data=user_data))
+    assert "כמה יורו?" in _reply_text(u)
+
+    # The bare-number answer goes to the model (not the regex path) together with the history
+    services.nlu.interpret.return_value = Interpretation("convert", 90, "EUR")
+    u = _update("90")
+    await handlers.text_msg(u, _context(services, user_data=user_data))
+    history = services.nlu.interpret.call_args.args[1]
+    assert history[0] == {"role": "user", "content": "תמיר רוצה להמיר יורו"}
+    assert "כמה יורו?" in history[1]["content"]
+    assert "370.00" in _reply_text(u)
+    assert handlers.CONVERSATION_KEY not in user_data  # cleared after success
+
+
+async def test_missing_currency_question_is_remembered(services):
+    user_data = {}
+    await handlers.text_msg(_update("90"), _context(services, user_data=user_data))
+    assert handlers.CONVERSATION_KEY in user_data
+
+    services.nlu.interpret.return_value = Interpretation("convert", 90, "EUR")
+    u = _update("יורו")
+    await handlers.text_msg(u, _context(services, user_data=user_data))
+    assert services.nlu.interpret.call_args.args[1][0]["content"] == "90"
+    assert "370.00" in _reply_text(u)
+
+
+async def test_conversation_expires(services, monkeypatch):
+    user_data = {}
+    await handlers.text_msg(_update("90"), _context(services, user_data=user_data))
+    monkeypatch.setattr(handlers, "CONVERSATION_TTL_SECONDS", -1)
+    services.nlu.interpret.return_value = Interpretation("help")
+    await handlers.text_msg(_update("יורו"), _context(services, user_data=user_data))
+    assert services.nlu.interpret.call_args.args[1] == []
+
+
+async def test_set_source_needs_confirmation(services):
+    services.nlu.interpret.return_value = Interpretation("set_source", currency="תאילנד")
+    u = _update("אני בתאילנד")
+    await handlers.text_msg(u, _context(services))
+    assert services.prefs.get_source(7) is None  # not applied yet
+    assert _buttons(u) == ["from:THB", "cancel"]
+
+    await handlers.currency_button(_button_update("from:THB"), _context(services))
+    assert services.prefs.get_source(7) == "THB"
+
+
+async def test_cancel_button_changes_nothing(services):
+    u = _button_update("cancel")
+    await handlers.currency_button(u, _context(services))
+    assert services.prefs.get_source(7) is None
+    assert "לא שיניתי" in u.callback_query.edit_message_text.call_args.args[0]
+
+
+async def test_clear_source_needs_confirmation(services):
+    services.prefs.set_source(7, "EUR")
+    services.nlu.interpret.return_value = Interpretation("clear_source")
+    u = _update("חזרתי הביתה")
+    await handlers.text_msg(u, _context(services))
+    assert services.prefs.get_source(7) == "EUR"
+    assert _buttons(u) == ["from:off", "cancel"]
+
+
+async def test_unknown_currency_from_model_asks(services):
+    user_data = {}
+    services.nlu.interpret.return_value = Interpretation("convert", 5, "פלפלים")
+    u = _update("5 פלפלים")
+    await handlers.text_msg(u, _context(services, user_data=user_data))
+    assert "פלפלים" in _reply_text(u)
+    assert handlers.CONVERSATION_KEY in user_data
+
+
+async def test_model_question_is_html_escaped(services):
+    services.nlu.interpret.return_value = Interpretation("clarify", question="<b>x</b>?")
+    u = _update("משהו")
+    await handlers.text_msg(u, _context(services))
+    assert "&lt;b&gt;" in _reply_text(u)
+
+
+async def test_language_model_down_falls_back_to_help(services):
+    services.nlu.interpret.side_effect = OllamaUnavailableError("down")
+    u = _update("שלום")
+    await handlers.text_msg(u, _context(services))
+    assert "/set" in _reply_text(u)
+
+
+async def test_photo_missing_currency_then_answer(services):
+    user_data = {}
+    services.vision.extract_price.return_value = ParsedPrice(18, None)
+    await handlers.photo_msg(_update(photo=True), _context(services, user_data=user_data))
+
+    services.nlu.interpret.return_value = Interpretation("convert", 18, "EUR")
+    u = _update("יורו")
+    await handlers.text_msg(u, _context(services, user_data=user_data))
+    assert "74.00" in _reply_text(u)
+
+
+async def test_set_target_accepts_currency_in_target_field(services):
+    services.nlu.interpret.return_value = Interpretation("set_target", target_currency="EUR")
+    u = _update("תעביר לי את כל התוצאות לאירו")
+    await handlers.text_msg(u, _context(services))
+    assert _buttons(u) == ["set:EUR", "cancel"]

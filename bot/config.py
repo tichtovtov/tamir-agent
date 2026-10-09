@@ -17,6 +17,10 @@ RATES_API_URL = "https://open.er-api.com/v6/latest/USD"
 RATES_BASE_CURRENCY = "USD"
 ALLOWED_USERS_FILENAME = "allowed_users.json"
 USER_PREFS_FILENAME = "user_prefs.json"
+# A pending clarification is forgotten after this many seconds of silence
+CONVERSATION_TTL_SECONDS = 600
+# How many recent messages of a clarification exchange are sent to the language model
+CONVERSATION_MAX_MESSAGES = 8
 
 
 @dataclass(frozen=True)
@@ -28,6 +32,7 @@ class Config:
     default_currency: str
     ollama_url: str
     ollama_model: str
+    ollama_text_model: str
     ollama_timeout: float
     data_dir: Path
     rates_ttl: int
@@ -67,12 +72,14 @@ def load_config() -> Config:
     except ValueError as e:
         raise ConfigError(f"Invalid numeric value in configuration: {e}") from e
 
+    vision_model = os.getenv("OLLAMA_MODEL", "gemma3:12b")
     return Config(
         telegram_token=token,
         admin_name=os.getenv("ADMIN_NAME", "אלעד"),
         default_currency=os.getenv("DEFAULT_CURRENCY", "ILS").upper(),
         ollama_url=os.getenv("OLLAMA_URL", "http://localhost:11434").rstrip("/"),
-        ollama_model=os.getenv("OLLAMA_MODEL", "qwen2.5vl:7b"),
+        ollama_model=vision_model,
+        ollama_text_model=os.getenv("OLLAMA_TEXT_MODEL") or vision_model,
         ollama_timeout=ollama_timeout,
         data_dir=Path(os.getenv("DATA_DIR", "data")),
         rates_ttl=rates_ttl,

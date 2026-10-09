@@ -22,7 +22,26 @@ Telegram update
                                        ▼
                          messages.conversion() → reply
 ```
-Any other input (sticker, voice, unknown command, text that isn't a price) → help message.
+Any other input (sticker, voice, unknown command) → help message.
+
+**Free text that `parser.parse` doesn't recognize** goes to `nlu.OllamaNLU.interpret` (a language model in Ollama), which returns an `Interpretation`:
+```
+text ── parser.parse ──► clear price ──────────────────────────► conversion
+             │
+             └─ not recognized / bare number while a question is pending
+                       ▼
+             nlu.interpret(text, conversation memory, user settings)
+                       ▼
+   convert ─────────► (validate currency in our code) ──► conversion / question
+   set_target/source ► confirmation button ("✅ כן" / "❌ לא") ──► saved only on press
+   clear_source ─────► confirmation button
+   clarify ──────────► the model's question (HTML-escaped) + saved to memory
+   show_settings / list_currencies / help ──► the existing response
+```
+Principles:
+- **The model only interprets; the code decides.** Every currency the model returns goes through `_resolve` (aliases + catalog + the rates provider's list). An unrecognized currency → question to the user. A settings change → only after a button press.
+- **Conversation memory**: when the bot asks a question (the model's question, "which currency?" for a bare number, or an image without a currency), the exchange is stored in `context.user_data` (in memory only, not on disk). The next message is sent to the model together with the memory, so an answer like `יורו` or `50` is understood in context. The memory is cleared after a successful action, or after `CONVERSATION_TTL_SECONDS` (10 minutes), and holds at most `CONVERSATION_MAX_MESSAGES` messages.
+- **If Ollama is down**: unrecognized text gets the help message (same as before the feature). Regular conversions aren't affected.
 
 **Choosing a currency in `/set` and `/from`** (`_choose_currency` in `handlers.py`):
 1. No argument → quick-pick buttons (`catalog.POPULAR`); in `/from`, also a cancel button.
@@ -47,7 +66,9 @@ A button press arrives as a callback query with data `set:<code>` / `from:<code>
 | `currencies.py` | Map of symbols/names → ISO code (for parsing free text), and display formatting |
 | `catalog.py` | Catalog of ~50 common currencies: Hebrew/English name, flag, region, countries. Used for `/currencies`, search, and buttons |
 | `rates.py` | `RatesClient`: fetches USD-based rates, cache, conversion via cross rate |
-| `vision.py` | `OllamaVision`: sends an image to Ollama with a JSON schema and returns `ParsedPrice` |
+| `ollama.py` | `OllamaClient`: shared Ollama client (chat with a JSON schema, startup check of models) |
+| `vision.py` | `OllamaVision`: sends an image to the model and returns `ParsedPrice` |
+| `nlu.py` | `OllamaNLU`: interprets free text into an `Interpretation` (action + fields). Includes `SYSTEM_PROMPT` with examples |
 | `messages.py` | All user-facing texts (Hebrew, HTML) |
 
 Services are created once in `__main__.py` and stored in `application.bot_data["services"]` (a `Services` object).
@@ -64,7 +85,8 @@ The split is intentional: the bot never writes to the file the admin edits, so t
 
 ## Design decisions
 - **Polling, not a webhook**: no public address or SSL certificate needed. Works behind a home NAT.
-- **Local Ollama**: images never leave the machine, and there's no per-use cost. The JSON schema in `format` forces structured output.
+- **Local Ollama**: images and text never leave the machine, and there's no per-use cost. The JSON schema in `format` forces structured output.
+- **Parser first, model second**: common messages (`100 USD`) are answered immediately and deterministically; only what isn't recognized pays the ~6 seconds of the language model.
 - **Rates via USD**: a single API call gives the rate between any pair of currencies (`rate = rates[target] / rates[source]`).
 - **Stale cache when the API fails**: better to return an old rate, with a warning, than to fail.
 - **A broken allowed_users.json doesn't lock out users**: the previous list is kept.
@@ -75,9 +97,11 @@ The split is intentional: the bot never writes to the file the admin edits, so t
 - **Currency display symbol**: `DISPLAY_SYMBOLS` in `currencies.py`.
 - **Changing text wording**: `messages.py` only.
 - **Improving recognition from images**: change `PROMPT` in `vision.py`, or the model in `.env`. Use `LOG_LEVEL=DEBUG` to see the model's raw output.
+- **Improving free-text understanding**: add an example to the `Examples` section of `SYSTEM_PROMPT` in `nlu.py`. Check with real phrases (see `tests/test_nlu.py` for the format), not just the ones in the examples.
+- **New action for the language model**: add it to `ACTIONS` and to the prompt in `nlu.py`, handle it in `_understand` in `handlers.py`, and add a test in `tests/test_handlers.py`.
 - **New command**: a function in `handlers.py` + registration in `register()` + an entry in `COMMANDS` in `__main__.py` (so it shows in Telegram's menu) + a line in the help text.
 - **Different rates provider**: replace `_fetch` in `rates.py` (keep `self._rates` relative to one base currency).
 
 ## Tests
 `tests/` covers the logic without network access: parsing, conversion and cache (`httpx.MockTransport`),
-the allow-list and preferences (temp directory), the vision module (a mocked Ollama), and the handlers' logic (`test_handlers.py`, with stub Telegram objects).
+the allow-list and preferences (temp directory), the vision and language modules (a mocked Ollama), and the handlers' logic, including the clarifying-question and confirmation flow (`test_handlers.py`, with stub Telegram objects).

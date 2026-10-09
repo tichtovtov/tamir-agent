@@ -29,7 +29,9 @@ def help_text(name: str | None, target: str, source: str | None) -> str:
         "• שלחו סכום ומטבע, למשל: <code>100 USD</code>, <code>€25</code>, "
         "<code>12.50 יורו</code>\n"
         "• או שלחו תמונה של תווית מחיר (אפשר להוסיף בכיתוב את המטבע, למשל <code>EUR</code>)\n"
-        "• בנסיעה? קבעו מטבע מקור עם <code>/from EUR</code> ואז אפשר לשלוח רק מספר\n\n"
+        "• בנסיעה? קבעו מטבע מקור עם <code>/from EUR</code> ואז אפשר לשלוח רק מספר\n"
+        "• אפשר גם לכתוב בחופשיות: <code>כמה זה 30 יורו בדולרים?</code>, "
+        "<code>אני טס ליפן</code>\n\n"
         "<b>פקודות:</b>\n"
         "/set &lt;מטבע&gt; - קביעת מטבע היעד, למשל <code>/set USD</code>\n"
         "/from &lt;מטבע&gt; - מטבע מקור כשנשלח רק מספר (<code>/from off</code> לביטול)\n"
@@ -50,8 +52,7 @@ def _settings_line(target: str, source: str | None) -> str:
 
 def missing_currency(amount: float) -> str:
     return (
-        f"קיבלתי את הסכום {amount:,.2f}, אבל לא ציינת מטבע.\n"
-        f"נסו למשל: <code>{amount:g} USD</code>\n"
+        f"🤔 באיזה מטבע הסכום {amount:,.2f}? (למשל: <code>יורו</code> או <code>USD</code>)\n"
         "טיפ: <code>/from USD</code> יקבע את USD כמטבע המקור, ואז אפשר לשלוח רק מספרים."
     )
 
@@ -146,3 +147,41 @@ def image_missing_currency(amount: float) -> str:
         f"או כתבו: <code>{amount:g} EUR</code>\n"
         "טיפ: <code>/from EUR</code> יקבע מטבע מקור קבוע לתמונות ומספרים בלי מטבע."
     )
+
+
+# --- Language-model flow (clarifications and confirmations) ---
+
+GENERIC_CLARIFY = (
+    "לא בטוח שהבנתי 🤔 אפשר לנסח שוב?\n"
+    "למשל: <code>100 דולר</code>, <code>כמה זה 50 יורו בשקלים?</code> או <code>אני בתאילנד</code>"
+)
+PHOTO_PLACEHOLDER = "[תמונה של תווית מחיר]"
+YES_BUTTON = "✅ כן"
+NO_BUTTON = "❌ לא"
+CANCELLED = "בסדר, לא שיניתי כלום."
+NO_SOURCE_SET = "אין כרגע מטבע מקור מוגדר, אז אין מה לבטל 🙂"
+
+
+def clarify(question: str | None) -> str:
+    """A clarifying question written by the language model (or a generic one)."""
+    return f"🤔 {escape(question)}" if question else GENERIC_CLARIFY
+
+
+def which_currency(token: str, codes: list[str]) -> str:
+    text = f"לא בטוח לאיזה מטבע התכוונת ב-<code>{escape(token)}</code>."
+    if codes:
+        text += "\nאולי אחד מאלה?\n" + "\n".join(f"• {catalog.describe(c)}" for c in codes[:8])
+    return text + "\nכתבו את שם המטבע או הקוד שלו (למשל <code>EUR</code>)."
+
+
+def confirm_setting(kind: str, code: str) -> str:
+    if kind == "set":
+        return f"לשנות את מטבע היעד ל-<b>{catalog.describe(code)}</b>?"
+    return (
+        f"להגדיר את <b>{catalog.describe(code)}</b> כמטבע המקור?\n"
+        f"כך תוכלו לשלוח רק מספר (או תמונה בלי מטבע) והוא יומר מ-{code}."
+    )
+
+
+def confirm_clear_source(source: str) -> str:
+    return f"לבטל את מטבע המקור <b>{catalog.describe(source)}</b>?"

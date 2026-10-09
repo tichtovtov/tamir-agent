@@ -4,6 +4,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/), and versions
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-09
+### Added
+- Free-text understanding with a local language model (Ollama): a message the regular parser doesn't recognize is interpreted by the model. That can be a conversion with a one-off target currency ("כמה זה 30 יורו בדולרים?"), a settings change ("אני טס ליפן"), clearing the source currency, help, or a **clarifying question** when something is missing or unclear.
+- Conversation memory for clarifications: an answer to the bot's question (`יורו`, `50`) is understood in context. Kept in memory only, cleared after an action or after 10 minutes.
+- Settings changes from free text are saved only after a confirmation button (✅ כן / ❌ לא).
+- `OLLAMA_TEXT_MODEL` setting (default: same as `OLLAMA_MODEL`).
+- `make model` also pulls the text model if it's different.
+### Changed
+- Default model is now `gemma3:12b` (instead of `qwen2.5vl:7b`): tested on both images and Hebrew text.
+- Shared Ollama client (`bot/ollama.py`) for images and text; the startup check covers both models.
+- Questions like "which currency?" (for a bare number or an image without a currency) are remembered, so the answer is understood in context.
+
 ## [0.3.0] - 2026-10-09
 ### Added
 - `/currencies` command: a list of about 50 common currencies by region, with a flag, Hebrew name and code.

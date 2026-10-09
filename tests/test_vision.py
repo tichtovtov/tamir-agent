@@ -3,13 +3,18 @@ import json
 import httpx
 import pytest
 
-from bot.vision import OllamaVision, VisionUnavailableError
+from bot.ollama import OllamaClient, OllamaUnavailableError
+from bot.vision import OllamaVision
+
+
+def _client(handler) -> OllamaClient:
+    return OllamaClient(
+        "http://ollama", 5, http=httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    )
 
 
 def _vision(handler) -> OllamaVision:
-    v = OllamaVision("http://ollama", "qwen2.5vl:7b", timeout=5)
-    v._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    return v
+    return OllamaVision(_client(handler), "qwen2.5vl:7b")
 
 
 def _chat_reply(content: dict) -> httpx.Response:
@@ -21,6 +26,19 @@ async def test_extract_price_normalizes_symbol():
     price = await v.extract_price(b"img")
     assert price.amount == pytest.approx(9.9)
     assert price.currency == "EUR"
+
+
+async def test_extract_price_sends_image_and_schema():
+    seen = {}
+
+    def handler(req):
+        seen.update(json.loads(req.content))
+        return _chat_reply({"amount": 1, "currency": "USD"})
+
+    await _vision(handler).extract_price(b"img")
+    assert seen["model"] == "qwen2.5vl:7b"
+    assert seen["messages"][0]["images"] == ["aW1n"]  # base64 of b"img"
+    assert seen["format"]["required"] == ["amount", "currency"]
 
 
 async def test_extract_price_no_amount():
@@ -38,16 +56,24 @@ async def test_extract_price_ollama_down():
     def handler(req):
         raise httpx.ConnectError("refused")
 
-    with pytest.raises(VisionUnavailableError):
+    with pytest.raises(OllamaUnavailableError):
         await _vision(handler).extract_price(b"img")
 
 
-async def test_check_reports_missing_model():
-    v = _vision(lambda req: httpx.Response(200, json={"models": [{"name": "llama3:latest"}]}))
-    problem = await v.check()
+async def test_check_reports_missing_models():
+    c = _client(lambda req: httpx.Response(200, json={"models": [{"name": "gemma3:12b"}]}))
+    problem = await c.check(["qwen2.5vl:7b", "gemma3:12b"])
     assert problem is not None and "ollama pull qwen2.5vl:7b" in problem
+    assert "gemma3" not in problem
 
 
 async def test_check_ok():
-    v = _vision(lambda req: httpx.Response(200, json={"models": [{"name": "qwen2.5vl:7b"}]}))
-    assert await v.check() is None
+    c = _client(lambda req: httpx.Response(200, json={"models": [{"name": "llama3:latest"}]}))
+    assert await c.check(["llama3"]) is None
+
+
+async def test_check_unreachable():
+    def handler(req):
+        raise httpx.ConnectError("refused")
+
+    assert "not reachable" in await _client(handler).check(["x"])

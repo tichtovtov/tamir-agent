@@ -16,6 +16,8 @@ from telegram.ext import Application
 from bot import __version__, handlers
 from bot.auth import AllowList
 from bot.config import Config, ConfigError, load_config
+from bot.nlu import OllamaNLU
+from bot.ollama import OllamaClient
 from bot.rates import RatesClient
 from bot.storage import UserPrefs
 from bot.vision import OllamaVision
@@ -50,19 +52,22 @@ def _check_data_dir(config: Config) -> None:
 
 async def _post_init(app: Application) -> None:
     services: handlers.Services = app.bot_data["services"]
-    problem = await services.vision.check()
+    cfg = services.config
+    models = list(dict.fromkeys([cfg.ollama_model, cfg.ollama_text_model]))
+    problem = await services.ollama.check(models)
     if problem:
-        # Text conversions still work; only photos fail. Warn loudly instead of exiting.
-        log.warning("Image recognition unavailable: %s", problem)
+        # Plain conversions still work; only photos and free-text understanding fail.
+        # Warn loudly instead of exiting.
+        log.warning("Ollama problem (photos / free text will not work): %s", problem)
     else:
-        log.info("Ollama OK (model %s)", services.config.ollama_model)
+        log.info("Ollama OK (vision: %s, text: %s)", cfg.ollama_model, cfg.ollama_text_model)
     await app.bot.set_my_commands(COMMANDS)
 
 
 async def _post_shutdown(app: Application) -> None:
     services: handlers.Services = app.bot_data["services"]
     await services.rates.aclose()
-    await services.vision.aclose()
+    await services.ollama.aclose()
 
 
 def main() -> int:
@@ -92,12 +97,15 @@ def main() -> int:
         .post_shutdown(_post_shutdown)
         .build()
     )
+    ollama = OllamaClient(config.ollama_url, config.ollama_timeout)
     app.bot_data["services"] = handlers.Services(
         config=config,
         allow_list=AllowList(config.allowed_users_path),
         prefs=UserPrefs(config.user_prefs_path, config.default_currency),
         rates=RatesClient(config.rates_ttl),
-        vision=OllamaVision(config.ollama_url, config.ollama_model, config.ollama_timeout),
+        ollama=ollama,
+        vision=OllamaVision(ollama, config.ollama_model),
+        nlu=OllamaNLU(ollama, config.ollama_text_model),
     )
     handlers.register(app)
 

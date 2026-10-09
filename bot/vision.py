@@ -14,9 +14,8 @@ import base64
 import json
 import logging
 
-import httpx
-
 from bot import currencies
+from bot.ollama import OllamaClient
 from bot.parser import ParsedPrice
 
 log = logging.getLogger(__name__)
@@ -41,36 +40,12 @@ RESPONSE_SCHEMA = {
 }
 
 
-class VisionUnavailableError(Exception):
-    """Raised when Ollama cannot be reached or returns an error."""
-
-
 class OllamaVision:
-    """Client for extracting prices from images via Ollama."""
+    """Extracts prices from images with an Ollama vision model."""
 
-    def __init__(self, base_url: str, model: str, timeout: float):
-        self._base_url = base_url
+    def __init__(self, client: OllamaClient, model: str):
+        self._client = client
         self._model = model
-        self._http = httpx.AsyncClient(timeout=timeout)
-
-    async def check(self) -> str | None:
-        """Verify Ollama is reachable and the model is pulled.
-
-        Returns None if all is well, or a human-readable problem description.
-        """
-        try:
-            resp = await self._http.get(f"{self._base_url}/api/tags", timeout=5)
-            resp.raise_for_status()
-        except httpx.HTTPError as e:
-            return (
-                f"Ollama is not reachable at {self._base_url} ({e}). "
-                "Start it with `ollama serve` (or open the Ollama app)."
-            )
-        names = {m.get("name", "") for m in resp.json().get("models", [])}
-        wanted = self._model if ":" in self._model else f"{self._model}:latest"
-        if wanted not in names:
-            return f"Model {self._model} is not pulled. Run: ollama pull {self._model}"
-        return None
 
     async def extract_price(self, image: bytes) -> ParsedPrice | None:
         """Return the price found in `image`, or None if there is no recognizable amount.
@@ -78,29 +53,16 @@ class OllamaVision:
         The returned currency may be None if the image shows only a number.
 
         Raises:
-            VisionUnavailableError: if Ollama fails.
+            OllamaUnavailableError: if Ollama fails.
         """
-        payload = {
-            "model": self._model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": PROMPT,
-                    "images": [base64.b64encode(image).decode("ascii")],
-                }
-            ],
-            "format": RESPONSE_SCHEMA,
-            "stream": False,
-            "options": {"temperature": 0},
-        }
-        try:
-            resp = await self._http.post(f"{self._base_url}/api/chat", json=payload)
-            resp.raise_for_status()
-            content = resp.json()["message"]["content"]
-        except (httpx.HTTPError, KeyError, ValueError) as e:
-            raise VisionUnavailableError(str(e)) from e
-
-        log.debug("Vision model raw output: %s", content)
+        messages = [
+            {
+                "role": "user",
+                "content": PROMPT,
+                "images": [base64.b64encode(image).decode("ascii")],
+            }
+        ]
+        content = await self._client.chat_json(self._model, messages, RESPONSE_SCHEMA)
         try:
             data = json.loads(content)
             amount = data.get("amount")
@@ -111,6 +73,3 @@ class OllamaVision:
         if amount is None or amount <= 0:
             return None
         return ParsedPrice(amount, currencies.normalize(data.get("currency")))
-
-    async def aclose(self) -> None:
-        await self._http.aclose()

@@ -8,6 +8,7 @@ and it replies with the value in the target currency (default: ILS ₪).
 - Travelling? `/from EUR` sets a default source currency, so you can send just a number (`12.5`) for the whole trip.
 - No need to know codes: `/from וייטנאם`, quick-pick buttons, and `/currencies` for the full list.
 - Prices are read from images by a **local vision model through Ollama**, with no external cloud service.
+- **Free-form writing**: a message the regular parser doesn't recognize ("כמה זה 30 יורו בדולרים?", "אני טס ליפן") goes to a local language model. It understands the request, and **asks a clarifying question** if something is missing or unclear. Settings changes from free text are saved only after a confirmation button.
 - Exchange rates come from [open.er-api.com](https://open.er-api.com) (free, no key needed), with a one-hour cache.
 - Access is limited to a list of authorized users. An unauthorized user gets their Telegram ID and is told to send it to the admin.
 
@@ -45,9 +46,9 @@ cd tamir-agent
 ### 2. Install Ollama and pull the model
 Install Ollama from https://ollama.com/download, start it (the Ollama app or `ollama serve`), then:
 ```bash
-ollama pull qwen2.5vl:7b        # or: make model
+ollama pull gemma3:12b          # or: make model
 ```
-> You can use a different vision model (e.g. `gemma3:12b`). See [Configuration](#configuration).
+> The same model handles both images and text understanding (about 8GB). You can use different models. See [Configuration](#configuration).
 
 ### 3. Create a bot in Telegram
 1. Open a chat with [@BotFather](https://t.me/BotFather) and send `/newbot`.
@@ -121,6 +122,8 @@ The bot manages a separate file, `data/user_prefs.json`, where it stores each us
 | Don't know the code? | Search by country or currency name: `/from וייטנאם`, `/set dong`. Several matches (`/set פסו`) → selection buttons |
 | Currency list | `/currencies`: about 50 common currencies with a flag, Hebrew name and code |
 | Show current settings | `/currency` |
+| Free-form writing | `כמה זה 30 יורו בדולרים?`, `2 בירות ב-150 באט`, `אני בלונדון השבוע` (proposes a source-currency change with a confirmation button), `חזרתי הביתה` |
+| Clarifying questions | If something is missing, the bot asks, e.g. `כמה עולה?` → "איזה סכום להמיר?". You can answer just `50` or `יורו` and it understands in context |
 | Help | `/help`, or any unsupported message |
 
 ## Configuration
@@ -132,14 +135,20 @@ All settings are in `.env`. Every variable has a comment in [.env.example](.env.
 | `ADMIN_NAME` | `אלעד` | Name shown to unauthorized users |
 | `DEFAULT_CURRENCY` | `ILS` | Target currency for new users |
 | `OLLAMA_URL` | `http://localhost:11434` | Ollama address (overridden automatically in Docker) |
-| `OLLAMA_MODEL` | `qwen2.5vl:7b` | Vision model |
-| `OLLAMA_TIMEOUT` | `90` | Max seconds per image |
+| `OLLAMA_MODEL` | `gemma3:12b` | Vision model (reading prices from images) |
+| `OLLAMA_TEXT_MODEL` | Same as `OLLAMA_MODEL` | Language model for understanding free text and clarifying questions |
+| `OLLAMA_TIMEOUT` | `90` | Max seconds per request to Ollama |
 | `DATA_DIR` | `data` | Data directory |
 | `RATES_TTL` | `3600` | Rates cache duration, in seconds |
 | `LOG_LEVEL` | `INFO` | `DEBUG` also shows the model's raw output |
 
-**Changing the vision model:** `ollama pull <model>`, update `OLLAMA_MODEL` in `.env`, and restart the bot.
-Tested models: `qwen2.5vl:7b`, `gemma3:12b`.
+**Changing models:** `ollama pull <model>`, update `OLLAMA_MODEL` / `OLLAMA_TEXT_MODEL` in `.env`, and restart the bot.
+
+Tested models:
+| Model | Images | Hebrew text | Response time (text, M-series Mac) |
+|---|---|---|---|
+| `gemma3:12b` | ✅ | ✅ 18/19 sample phrases understood correctly | ~6 seconds |
+| `qwen2.5:7b-instruct` | (no image support) | ⚠️ confuses target and source currency | ~1.5 seconds |
 
 ## Moving to another machine and backup
 Everything specific to a deployment lives in two places, which are **not in git**:
@@ -167,7 +176,9 @@ Every change is recorded in [CHANGELOG.md](CHANGELOG.md).
 | `Ollama is not reachable` on startup | Start Ollama (`ollama serve` or the app). In Docker, make sure Ollama is running on the **host** |
 | `Model ... is not pulled` | `ollama pull <model>` |
 | Bot replies "image recognition service is unavailable" | As above. Check with `curl localhost:11434/api/tags` |
-| Image takes a long time / timeout | First run loads the model into memory (can take ~30 seconds). Raise `OLLAMA_TIMEOUT` or use a smaller model |
+| Free text gets the help message instead of an answer | The language model isn't available (Ollama not running or model not pulled). See the startup warning in the log |
+| The model misunderstood a phrase | Run with `LOG_LEVEL=DEBUG` to see what it returned, and add a matching example to `SYSTEM_PROMPT` in `bot/nlu.py` |
+| Image / free text takes a long time / timeout | First run loads the model into memory (can take ~30 seconds). Raise `OLLAMA_TIMEOUT` or use a smaller model |
 | A user was added but still gets "unauthorized" | Check that the ID in the file is correct and that the JSON is valid (look at the log) |
 | In Docker on Linux: `Permission denied` on `data/` | The container runs as uid 1000: `sudo chown -R 1000 data` |
 | Docker on Linux: Ollama isn't reachable from the container | Ollama listens only on localhost by default. Set `OLLAMA_HOST=0.0.0.0` in the Ollama service |

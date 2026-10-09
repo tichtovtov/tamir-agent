@@ -2,14 +2,20 @@
 
 Flow for every update:
 1. `gate` (group -1) stops unauthorized users with a message containing their ID.
-2. Commands (/start, /help, /set, /from, /currency, /currencies), currency-button
-   presses, text, photos, or the fallback handler.
+2. Commands (/start, /help, /set, /from, /currency, /currencies), button presses,
+   text, photos, or the fallback handler.
+Text that parser.py understands is converted directly; anything else goes to the
+language model (nlu.py), which may lead to a conversion, a proposed settings change
+(confirmed with a button), or a clarifying question.
 Shared services are stored in `application.bot_data["services"]`.
 """
 
 from __future__ import annotations
 
+import html
 import logging
+import re
+import time
 from dataclasses import dataclass
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, User
@@ -27,11 +33,13 @@ from telegram.ext import (
 
 from bot import catalog, currencies, messages, parser
 from bot.auth import AllowList
-from bot.config import Config
+from bot.config import CONVERSATION_MAX_MESSAGES, CONVERSATION_TTL_SECONDS, Config
+from bot.nlu import Interpretation, OllamaNLU
+from bot.ollama import OllamaClient, OllamaUnavailableError
 from bot.parser import ParsedPrice
 from bot.rates import RatesClient, RatesUnavailableError, UnknownCurrencyError
 from bot.storage import UserPrefs
-from bot.vision import OllamaVision, VisionUnavailableError
+from bot.vision import OllamaVision
 
 log = logging.getLogger(__name__)
 
@@ -39,6 +47,8 @@ log = logging.getLogger(__name__)
 KIND_SET, KIND_FROM = "set", "from"
 # Arguments to /from that clear the default source currency
 CLEAR_WORDS = {"off", "none", "clear", "ביטול", "בטל", "-"}
+CANCEL = "cancel"  # callback data of the "no" button
+CONVERSATION_KEY = "conversation"  # context.user_data key of the clarification memory
 BUTTONS_PER_ROW = 4
 MAX_MATCH_BUTTONS = 12
 
@@ -51,7 +61,9 @@ class Services:
     allow_list: AllowList
     prefs: UserPrefs
     rates: RatesClient
+    ollama: OllamaClient
     vision: OllamaVision
+    nlu: OllamaNLU
 
 
 def _services(context: ContextTypes.DEFAULT_TYPE) -> Services:
@@ -183,9 +195,14 @@ async def from_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def currency_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """A press on a currency button from /set or /from."""
+    """A press on a currency/confirmation button ("set:USD", "from:off", "cancel")."""
     s = _services(context)
     query = update.callback_query
+    _forget(context)
+    if query.data == CANCEL:
+        await query.answer()
+        await query.edit_message_text(messages.CANCELLED)
+        return
     kind, _, value = query.data.partition(":")
     code = None if value == "off" and kind == KIND_FROM else value
     if code is not None:
@@ -207,9 +224,12 @@ async def currencies_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await _reply(update, messages.currency_list())
 
 
-async def _convert_and_reply(update: Update, s: Services, price: ParsedPrice) -> None:
+async def _convert_and_reply(
+    update: Update, s: Services, price: ParsedPrice, target: str | None = None
+) -> None:
+    """Convert to `target` (default: the user's target currency) and reply."""
     uid = update.effective_user.id
-    target = s.prefs.get_currency(uid)
+    target = target or s.prefs.get_currency(uid)
     try:
         conv = await s.rates.convert(price.amount, price.currency, target)
     except UnknownCurrencyError as e:
@@ -223,21 +243,183 @@ async def _convert_and_reply(update: Update, s: Services, price: ParsedPrice) ->
     await _reply(update, messages.conversion(conv))
 
 
+# --- Clarification memory ---------------------------------------------------------
+# While the bot waits for an answer to a question it asked, the exchange is kept in
+# context.user_data (in memory only) so the language model can read the answer in
+# context. It is cleared once a request is fulfilled, or expires after a while.
+
+
+def _conversation(context: ContextTypes.DEFAULT_TYPE) -> list[dict]:
+    """Messages of the pending clarification exchange (empty if none or expired)."""
+    conv = context.user_data.get(CONVERSATION_KEY)
+    if not conv or time.monotonic() - conv["ts"] > CONVERSATION_TTL_SECONDS:
+        return []
+    return conv["messages"]
+
+
+def _forget(context: ContextTypes.DEFAULT_TYPE) -> None:
+    context.user_data.pop(CONVERSATION_KEY, None)
+
+
+async def _ask(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    user_text: str,
+    question: str,
+    keyboard: InlineKeyboardMarkup | None = None,
+) -> None:
+    """Send a question and remember the exchange for the next message."""
+    await _reply(update, question, keyboard)
+    plain = html.unescape(re.sub(r"<[^>]+>", "", question))
+    msgs = _conversation(context) + [
+        {"role": "user", "content": user_text},
+        {"role": "assistant", "content": plain},
+    ]
+    context.user_data[CONVERSATION_KEY] = {
+        "ts": time.monotonic(),
+        "messages": msgs[-CONVERSATION_MAX_MESSAGES:],
+    }
+
+
+# --- Messages -------------------------------------------------------------------
+
+
 async def text_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Free text: parse a price, or show help."""
+    """Free text: a clear price is converted directly; anything else goes to the language model."""
     s = _services(context)
-    price = parser.parse(update.effective_message.text)
+    text = update.effective_message.text
     uid = update.effective_user.id
+    price = parser.parse(text)
     log.info("User %s text -> %s", uid, price)
-    if price is None:
-        await help_cmd(update, context)
+
+    # Not a price, or a bare number that may answer a pending question → language model
+    if price is None or (price.currency is None and _conversation(context)):
+        await _understand(update, context, text)
         return
     # A bare number uses the user's default source currency (set with /from)
     currency = price.currency or s.prefs.get_source(uid)
     if currency is None:
-        await _reply(update, messages.missing_currency(price.amount))
+        await _ask(update, context, text, messages.missing_currency(price.amount))
+        return
+    _forget(context)
+    await _convert_and_reply(update, s, ParsedPrice(price.amount, currency))
+
+
+async def _understand(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
+    """Interpret free text with the language model and act on it (or ask a question)."""
+    s = _services(context)
+    uid = update.effective_user.id
+    await update.effective_message.chat.send_action(ChatAction.TYPING)
+    try:
+        it = await s.nlu.interpret(
+            text, _conversation(context), s.prefs.get_currency(uid), s.prefs.get_source(uid)
+        )
+    except OllamaUnavailableError:
+        log.exception("Language model unavailable")
+        _forget(context)
+        await help_cmd(update, context)
+        return
+    log.info("User %s NLU -> %s", uid, it)
+
+    try:
+        if it.action == "convert":
+            await _nlu_convert(update, context, text, it)
+        elif it.action in ("set_target", "set_source"):
+            kind = KIND_SET if it.action == "set_target" else KIND_FROM
+            await _nlu_setting(update, context, text, kind, it)
+        elif it.action == "clear_source":
+            await _nlu_clear_source(update, context)
+        elif it.action == "clarify":
+            await _ask(update, context, text, messages.clarify(it.question))
+        else:
+            _forget(context)
+            if it.action == "show_settings":
+                await _show_settings(update, s)
+            elif it.action == "list_currencies":
+                await currencies_cmd(update, context)
+            else:
+                await help_cmd(update, context)
+    except RatesUnavailableError:
+        await _reply(update, messages.RATES_UNAVAILABLE)
+
+
+async def _nlu_convert(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, it: Interpretation
+) -> None:
+    s = _services(context)
+    if it.amount is None or it.amount <= 0:
+        await _ask(update, context, text, messages.clarify(it.question))
+        return
+    if it.currency:
+        codes = await _resolve(s, it.currency)
+        if len(codes) != 1:
+            await _ask(update, context, text, messages.which_currency(it.currency, codes))
+            return
+        currency = codes[0]
     else:
-        await _convert_and_reply(update, s, ParsedPrice(price.amount, currency))
+        currency = s.prefs.get_source(update.effective_user.id)
+        if currency is None:
+            await _ask(update, context, text, messages.missing_currency(it.amount))
+            return
+    # One-off target ("how much is it in euros"); ignored if it can't be resolved
+    target = None
+    if it.target_currency:
+        targets = await _resolve(s, it.target_currency)
+        target = targets[0] if len(targets) == 1 else None
+    _forget(context)
+    await _convert_and_reply(update, s, ParsedPrice(it.amount, currency), target)
+
+
+async def _nlu_setting(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, kind: str, it: Interpretation
+) -> None:
+    """Propose a settings change understood from free text; applied only via a button."""
+    s = _services(context)
+    # Models sometimes put the currency of a set_target in target_currency; accept either
+    token = it.currency or it.target_currency
+    if not token:
+        await _ask(update, context, text, messages.clarify(it.question))
+        return
+    codes = await _resolve(s, token)
+    if not codes:
+        await _ask(update, context, text, messages.which_currency(token, codes))
+        return
+    _forget(context)
+    if len(codes) > 1:
+        await _reply(
+            update,
+            messages.multiple_matches(token),
+            _keyboard(kind, codes[:MAX_MATCH_BUTTONS]),
+        )
+        return
+    await _reply(
+        update,
+        messages.confirm_setting(kind, codes[0]),
+        _confirm_keyboard(f"{kind}:{codes[0]}"),
+    )
+
+
+async def _nlu_clear_source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    s = _services(context)
+    _forget(context)
+    source = s.prefs.get_source(update.effective_user.id)
+    if source is None:
+        await _reply(update, messages.NO_SOURCE_SET)
+        return
+    await _reply(
+        update, messages.confirm_clear_source(source), _confirm_keyboard(f"{KIND_FROM}:off")
+    )
+
+
+def _confirm_keyboard(yes_data: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(messages.YES_BUTTON, callback_data=yes_data),
+                InlineKeyboardButton(messages.NO_BUTTON, callback_data=CANCEL),
+            ]
+        ]
+    )
 
 
 async def photo_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -251,7 +433,7 @@ async def photo_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     try:
         price = await s.vision.extract_price(image)
-    except VisionUnavailableError:
+    except OllamaUnavailableError:
         log.exception("Vision model unavailable")
         await _reply(update, messages.VISION_UNAVAILABLE)
         return
@@ -264,8 +446,10 @@ async def photo_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     caption_code = currencies.normalize(msg.caption) if msg.caption else None
     currency = caption_code or price.currency or s.prefs.get_source(update.effective_user.id)
     if currency is None:
-        await _reply(update, messages.image_missing_currency(price.amount))
+        user_text = msg.caption or messages.PHOTO_PLACEHOLDER
+        await _ask(update, context, user_text, messages.image_missing_currency(price.amount))
         return
+    _forget(context)
     await _convert_and_reply(update, s, ParsedPrice(price.amount, currency))
 
 
@@ -284,7 +468,7 @@ def register(app: Application) -> None:
     app.add_handler(CommandHandler("from", from_cmd))
     app.add_handler(CommandHandler("currency", currency_cmd))
     app.add_handler(CommandHandler("currencies", currencies_cmd))
-    app.add_handler(CallbackQueryHandler(currency_button, pattern=r"^(set|from):"))
+    app.add_handler(CallbackQueryHandler(currency_button, pattern=r"^((set|from):\w+|cancel)$"))
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, photo_msg))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_msg))
     # Anything else (stickers, voice, unknown commands...) gets the help text

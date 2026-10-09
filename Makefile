@@ -3,7 +3,9 @@ PYTHON ?= python3
 VENV := .venv
 BIN := $(VENV)/bin
 MODEL ?= $(shell grep -E '^OLLAMA_MODEL=' .env 2>/dev/null | cut -d= -f2)
-MODEL := $(if $(MODEL),$(MODEL),qwen2.5vl:7b)
+MODEL := $(if $(MODEL),$(MODEL),gemma3:12b)
+TEXT_MODEL ?= $(shell grep -E '^OLLAMA_TEXT_MODEL=' .env 2>/dev/null | cut -d= -f2)
+TEXT_MODEL := $(if $(TEXT_MODEL),$(TEXT_MODEL),$(MODEL))
 
 .PHONY: help setup model run test lint format docker-up docker-down docker-logs
 
@@ -17,8 +19,9 @@ setup:  ## Create venv, install deps, create .env and data files if missing
 	@test -f .env || (cp .env.example .env && echo ">> Created .env — fill in TELEGRAM_BOT_TOKEN")
 	@test -f data/allowed_users.json || (echo '{}' > data/allowed_users.json && echo ">> Created empty data/allowed_users.json")
 
-model:  ## Pull the Ollama vision model
+model:  ## Pull the Ollama models (vision + text, from .env)
 	ollama pull $(MODEL)
+	@test "$(TEXT_MODEL)" = "$(MODEL)" || ollama pull $(TEXT_MODEL)
 
 run:  ## Run the bot locally
 	$(BIN)/python -m bot
