@@ -1,0 +1,17 @@
+[project]
+name = "tamir-agent"
+version = "0.1.0"
+description = "Telegram bot that converts prices (text or price-tag photos) to each user's preferred currency"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"

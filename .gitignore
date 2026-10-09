@@ -1,0 +1,19 @@
+# Secrets
+.env
+
+# Runtime data (user list, preferences) — kept out of git; back up separately
+data/*
+!data/allowed_users.example.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
