@@ -1,6 +1,6 @@
 [project]
 name = "tamir-agent"
-version = "0.1.0"
+version = "0.2.0"
 description = "Telegram bot that converts prices (text or price-tag photos) to each user's preferred currency"
 requires-python = ">=3.11"
 

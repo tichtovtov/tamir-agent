@@ -8,19 +8,25 @@ Telegram update
  gate (auth.AllowList) ── not in list ──► "send your ID <id> to Elad" (stop)
       │ authorized
       ▼
- ┌────────────┬───────────────┬────────────────────┬──────────────┐
- │ /start     │ /set <cur>    │ text               │ photo/image  │
- │ /help      │ /currency     │                    │              │
- ▼            ▼               ▼                    ▼              │
- help     storage.UserPrefs  parser.parse()   vision.extract_price()
-                              │                    │ (+ currency from caption)
-                              └────────┬───────────┘
+ ┌────────────┬────────────────┬────────────────────┬──────────────┐
+ │ /start     │ /set <cur>     │ text               │ photo/image  │
+ │ /help      │ /from <cur>    │                    │              │
+ │            │ /currency      │                    │              │
+ ▼            ▼                ▼                    ▼              │
+ help     storage.UserPrefs   parser.parse()   vision.extract_price()
+                               │                    │ (+ currency from caption)
+                               │  (no currency? → /from default)
+                               └────────┬───────────┘
                                        ▼
                          rates.RatesClient.convert()
                                        ▼
                          messages.conversion() → reply
 ```
 Any other input (sticker, voice, unknown command, text that isn't a price) → help message.
+
+**Determining the source currency** (first one found):
+- Text: currency written in the message → user's `source` (`/from`) → otherwise ask for a currency.
+- Image: currency in the caption → currency the model saw in the image → user's `source` → otherwise ask for a currency.
 
 ## Modules (`bot/`)
 | File | Responsibility |
@@ -42,7 +48,9 @@ Services are created once in `__main__.py` and stored in `application.bot_data["
 | File | Who writes it | Format |
 |---|---|---|
 | `allowed_users.json` | Admin, by hand | `{"<telegram_id>": {"name": "<name>"}}` |
-| `user_prefs.json` | The bot | `{"<telegram_id>": {"name": "<Telegram name>", "currency": "USD"}}` |
+| `user_prefs.json` | The bot | `{"<telegram_id>": {"name": "<Telegram name>", "currency": "USD", "source": "EUR"}}` |
+
+`currency` = target currency (default `DEFAULT_CURRENCY`). `source` = default source currency from `/from`, optional; `/from off` removes the field.
 
 The split is intentional: the bot never writes to the file the admin edits, so there's no risk of overwriting manual edits.
 
@@ -63,4 +71,4 @@ The split is intentional: the bot never writes to the file the admin edits, so t
 
 ## Tests
 `tests/` covers the logic without network access: parsing, conversion and cache (`httpx.MockTransport`),
-the allow-list and preferences (temp directory), and the vision module (a mocked Ollama). The handlers themselves are tested manually against Telegram (see the checklist in the README).
+the allow-list and preferences (temp directory), the vision module (a mocked Ollama), and the handlers' logic (`test_handlers.py`, with stub Telegram objects).

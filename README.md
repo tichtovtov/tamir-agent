@@ -5,6 +5,7 @@ Send it an amount and a currency as text (`100 USD`, `€25`, `50 יורו`), or
 and it replies with the value in the target currency (default: ILS ₪).
 
 - Each user picks a target currency with `/set USD` (or any other currency).
+- Travelling? `/from EUR` sets a default source currency, so you can send just a number (`12.5`) for the whole trip.
 - Prices are read from images by a **local vision model through Ollama**, with no external cloud service.
 - Exchange rates come from [open.er-api.com](https://open.er-api.com) (free, no key needed), with a one-hour cache.
 - Access is limited to a list of authorized users. An unauthorized user gets their Telegram ID and is told to send it to the admin.
@@ -107,15 +108,16 @@ The `data/allowed_users.json` file is **edited by hand**:
 - **No restart needed.** The bot detects the change automatically on the next message.
 - If the file has a JSON error, the bot keeps the previous list and logs an error.
 
-The bot manages a separate file, `data/user_prefs.json`, where it stores each user's target currency. There's no need to edit it.
+The bot manages a separate file, `data/user_prefs.json`, where it stores each user's target currency and default source currency (`/from`). There's no need to edit it.
 
 ## Using the bot
 | Action | Example |
 |---|---|
 | Convert text | `100 USD`, `$12.5`, `12,50€`, `1,299.90 EUR`, `50 יורו`, `30 ש"ח` |
-| Convert from an image | Send a photo of a price tag. If the tag has no currency symbol, add it in the caption: `EUR` |
+| Convert from an image | Send a photo of a price tag. If the tag has no currency symbol, add it in the caption: `EUR` (or set `/from`) |
 | Change target currency | `/set USD`, `/set יורו` |
-| Show target currency | `/currency` |
+| Default source currency (trips) | `/from EUR`, then just send `12.5`. Cancel with `/from off` |
+| Show current settings | `/currency` |
 | Help | `/help`, or any unsupported message |
 
 ## Configuration

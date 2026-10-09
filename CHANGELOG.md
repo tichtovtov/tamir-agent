@@ -4,6 +4,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/), and versions
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-09
+### Added
+- `/from <currency>` command: a default source currency, saved per user in `user_prefs.json` (`source` field). A bare number, or an image with no currency, is converted from it. Handy for trips. `/from off` cancels.
+- Handler tests (`tests/test_handlers.py`).
+### Changed
+- `/currency` and the help message show the default source currency too.
+
 ## [0.1.0] - 2026-10-09
 ### Added
 - Telegram bot that converts prices from text (`100 USD`, `€25`, `50 יורו`) into each user's target currency.

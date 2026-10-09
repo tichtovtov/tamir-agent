@@ -24,7 +24,8 @@ log = logging.getLogger("bot")
 
 COMMANDS = [
     BotCommand("set", "קביעת מטבע היעד, למשל /set USD"),
-    BotCommand("currency", "הצגת מטבע היעד הנוכחי"),
+    BotCommand("from", "מטבע מקור למספר בלי מטבע, למשל /from EUR"),
+    BotCommand("currency", "הצגת ההגדרות הנוכחיות"),
     BotCommand("help", "איך משתמשים בבוט"),
 ]
 

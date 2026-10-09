@@ -1,8 +1,10 @@
 """Per-user preferences, stored in data/user_prefs.json (written only by the bot).
 
 Format:
-    {"123456789": {"name": "Tamir Cohen", "currency": "ILS"}, ...}
+    {"123456789": {"name": "Tamir Cohen", "currency": "ILS", "source": "EUR"}, ...}
 `name` is the user's Telegram display name, kept for reference.
+`currency` is the target currency; `source` (optional) is the currency assumed when
+the user sends a bare number, e.g. the local currency while travelling.
 Writes are atomic (temp file + rename) so a crash never leaves a broken file.
 """
 
@@ -53,9 +55,23 @@ class UserPrefs:
 
     def set_currency(self, user_id: int, currency: str, name: str = "") -> None:
         """Set the user's target currency and persist it."""
+        self._update(user_id, "currency", currency, name)
+
+    def get_source(self, user_id: int) -> str | None:
+        """Return the user's default source currency, or None if not set."""
+        return self._data.get(str(user_id), {}).get("source")
+
+    def set_source(self, user_id: int, currency: str | None, name: str = "") -> None:
+        """Set (or clear, with None) the user's default source currency and persist it."""
+        self._update(user_id, "source", currency, name)
+
+    def _update(self, user_id: int, key: str, value: str | None, name: str) -> None:
         with self._lock:
             entry = self._data.setdefault(str(user_id), {})
-            entry["currency"] = currency
+            if value is None:
+                entry.pop(key, None)
+            else:
+                entry[key] = value
             if name:
                 entry["name"] = name
             self._save()

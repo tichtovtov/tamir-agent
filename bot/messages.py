@@ -20,25 +20,36 @@ def unauthorized(user_id: int, admin_name: str) -> str:
     )
 
 
-def help_text(name: str | None, target: str) -> str:
+def help_text(name: str | None, target: str, source: str | None) -> str:
     greeting = f"היי {escape(name)}! " if name else "היי! "
     return (
-        f"{greeting}אני ממיר מחירים למטבע שבחרת "
-        f"(כרגע: <b>{target}</b>).\n\n"
+        f"{greeting}אני ממיר מחירים למטבע שבחרת.\n"
+        f"{_settings_line(target, source)}\n\n"
         "<b>איך משתמשים:</b>\n"
         "• שלחו סכום ומטבע, למשל: <code>100 USD</code>, <code>€25</code>, "
         "<code>12.50 יורו</code>\n"
-        "• או שלחו תמונה של תווית מחיר (אפשר להוסיף בכיתוב את המטבע, למשל <code>EUR</code>)\n\n"
+        "• או שלחו תמונה של תווית מחיר (אפשר להוסיף בכיתוב את המטבע, למשל <code>EUR</code>)\n"
+        "• בנסיעה? קבעו מטבע מקור עם <code>/from EUR</code> ואז אפשר לשלוח רק מספר\n\n"
         "<b>פקודות:</b>\n"
         "/set &lt;מטבע&gt; - קביעת מטבע היעד, למשל <code>/set USD</code>\n"
-        "/currency - הצגת מטבע היעד הנוכחי\n"
+        "/from &lt;מטבע&gt; - מטבע מקור כשנשלח רק מספר (<code>/from off</code> לביטול)\n"
+        "/currency - הצגת ההגדרות הנוכחיות\n"
         "/help - ההודעה הזו"
     )
 
 
+def _settings_line(target: str, source: str | None) -> str:
+    line = f"מטבע יעד: <b>{target}</b>"
+    if source:
+        line += f" · מטבע מקור ברירת מחדל: <b>{source}</b>"
+    return line
+
+
 def missing_currency(amount: float) -> str:
     return (
-        f"קיבלתי את הסכום {amount:,.2f}, אבל לא ציינת מטבע.\nנסו למשל: <code>{amount:g} USD</code>"
+        f"קיבלתי את הסכום {amount:,.2f}, אבל לא ציינת מטבע.\n"
+        f"נסו למשל: <code>{amount:g} USD</code>\n"
+        "טיפ: <code>/from USD</code> יקבע את USD כמטבע המקור, ואז אפשר לשלוח רק מספרים."
     )
 
 
@@ -56,12 +67,28 @@ def conversion(c: Conversion) -> str:
     return text
 
 
-def current_currency(target: str) -> str:
-    return f"מטבע היעד שלך: <b>{target}</b>\nלשינוי: <code>/set USD</code> (או כל קוד מטבע אחר)"
+def current_settings(target: str, source: str | None) -> str:
+    text = f"{_settings_line(target, source)}\nלשינוי מטבע היעד: <code>/set USD</code>"
+    if source:
+        text += "\nלביטול מטבע המקור: <code>/from off</code>"
+    else:
+        text += "\nלקביעת מטבע מקור (למספר בלי מטבע): <code>/from EUR</code>"
+    return text
 
 
 def currency_set(target: str) -> str:
     return f"✅ מטבע היעד עודכן ל-<b>{target}</b>"
+
+
+def source_set(source: str) -> str:
+    return (
+        f"✅ מטבע המקור נקבע ל-<b>{source}</b>\n"
+        f"מעכשיו מספר בלי מטבע (בטקסט או בתמונה) יומר מ-{source}.\n"
+        "לביטול: <code>/from off</code>"
+    )
+
+
+SOURCE_CLEARED = "✅ מטבע המקור בוטל. מעכשיו צריך לציין מטבע עם כל סכום."
 
 
 def unknown_currency(token: str) -> str:
@@ -80,5 +107,6 @@ def image_missing_currency(amount: float) -> str:
     return (
         f"זיהיתי בתמונה את הסכום <b>{amount:,.2f}</b> אבל לא את המטבע.\n"
         "שלחו שוב את התמונה עם המטבע בכיתוב (למשל <code>EUR</code>), "
-        f"או כתבו: <code>{amount:g} EUR</code>"
+        f"או כתבו: <code>{amount:g} EUR</code>\n"
+        "טיפ: <code>/from EUR</code> יקבע מטבע מקור קבוע לתמונות ומספרים בלי מטבע."
     )

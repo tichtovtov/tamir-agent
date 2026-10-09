@@ -33,6 +33,9 @@ from bot.vision import OllamaVision, VisionUnavailableError
 
 log = logging.getLogger(__name__)
 
+# Arguments to /from that clear the default source currency
+CLEAR_WORDS = {"off", "none", "clear", "ביטול", "בטל", "-"}
+
 
 @dataclass
 class Services:
@@ -70,13 +73,38 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/start, /help and any unsupported input."""
     s = _services(context)
     uid = update.effective_user.id
-    await _reply(update, messages.help_text(s.allow_list.name_of(uid), s.prefs.get_currency(uid)))
+    await _reply(
+        update,
+        messages.help_text(
+            s.allow_list.name_of(uid), s.prefs.get_currency(uid), s.prefs.get_source(uid)
+        ),
+    )
+
+
+async def _show_settings(update: Update, s: Services) -> None:
+    uid = update.effective_user.id
+    await _reply(
+        update, messages.current_settings(s.prefs.get_currency(uid), s.prefs.get_source(uid))
+    )
 
 
 async def currency_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/currency: show the current target currency."""
-    s = _services(context)
-    await _reply(update, messages.current_currency(s.prefs.get_currency(update.effective_user.id)))
+    """/currency: show the target and default source currencies."""
+    await _show_settings(update, _services(context))
+
+
+async def _validate_currency(update: Update, s: Services, token: str) -> str | None:
+    """Return the ISO code for `token` if supported; otherwise reply with an error, return None."""
+    code = currencies.normalize(token)
+    try:
+        supported = await s.rates.supported()
+    except RatesUnavailableError:
+        await _reply(update, messages.RATES_UNAVAILABLE)
+        return None
+    if code is None or code not in supported:
+        await _reply(update, messages.unknown_currency(token))
+        return None
+    return code
 
 
 async def set_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -84,23 +112,35 @@ async def set_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     s = _services(context)
     user = update.effective_user
     if not context.args:
-        await _reply(update, messages.current_currency(s.prefs.get_currency(user.id)))
+        await _show_settings(update, s)
         return
-
-    token = " ".join(context.args)
-    code = currencies.normalize(token)
-    try:
-        supported = await s.rates.supported()
-    except RatesUnavailableError:
-        await _reply(update, messages.RATES_UNAVAILABLE)
+    code = await _validate_currency(update, s, " ".join(context.args))
+    if code is None:
         return
-    if code is None or code not in supported:
-        await _reply(update, messages.unknown_currency(token))
-        return
-
     s.prefs.set_currency(user.id, code, user.full_name)
     log.info("User %s set currency to %s", user.id, code)
     await _reply(update, messages.currency_set(code))
+
+
+async def from_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/from <currency>: default source currency for bare numbers; /from off clears it."""
+    s = _services(context)
+    user = update.effective_user
+    if not context.args:
+        await _show_settings(update, s)
+        return
+    token = " ".join(context.args)
+    if token.strip().lower() in CLEAR_WORDS:
+        s.prefs.set_source(user.id, None, user.full_name)
+        log.info("User %s cleared source currency", user.id)
+        await _reply(update, messages.SOURCE_CLEARED)
+        return
+    code = await _validate_currency(update, s, token)
+    if code is None:
+        return
+    s.prefs.set_source(user.id, code, user.full_name)
+    log.info("User %s set source currency to %s", user.id, code)
+    await _reply(update, messages.source_set(code))
 
 
 async def _convert_and_reply(update: Update, s: Services, price: ParsedPrice) -> None:
@@ -123,13 +163,17 @@ async def text_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Free text: parse a price, or show help."""
     s = _services(context)
     price = parser.parse(update.effective_message.text)
-    log.info("User %s text -> %s", update.effective_user.id, price)
+    uid = update.effective_user.id
+    log.info("User %s text -> %s", uid, price)
     if price is None:
         await help_cmd(update, context)
-    elif price.currency is None:
+        return
+    # A bare number uses the user's default source currency (set with /from)
+    currency = price.currency or s.prefs.get_source(uid)
+    if currency is None:
         await _reply(update, messages.missing_currency(price.amount))
     else:
-        await _convert_and_reply(update, s, price)
+        await _convert_and_reply(update, s, ParsedPrice(price.amount, currency))
 
 
 async def photo_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -152,9 +196,9 @@ async def photo_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if price is None:
         await _reply(update, messages.NO_PRICE_IN_IMAGE)
         return
-    # A currency in the caption overrides what the model detected
+    # Priority: currency in the caption > currency seen in the image > user's /from default
     caption_code = currencies.normalize(msg.caption) if msg.caption else None
-    currency = caption_code or price.currency
+    currency = caption_code or price.currency or s.prefs.get_source(update.effective_user.id)
     if currency is None:
         await _reply(update, messages.image_missing_currency(price.amount))
         return
@@ -173,6 +217,7 @@ def register(app: Application) -> None:
     app.add_handler(TypeHandler(Update, gate), group=-1)
     app.add_handler(CommandHandler(["start", "help"], help_cmd))
     app.add_handler(CommandHandler("set", set_cmd))
+    app.add_handler(CommandHandler("from", from_cmd))
     app.add_handler(CommandHandler("currency", currency_cmd))
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, photo_msg))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_msg))

@@ -48,3 +48,17 @@ def test_prefs_default_and_persist(tmp_path):
     assert reloaded.get_currency(5) == "USD"
     assert json.loads(path.read_text(encoding="utf-8"))["5"]["name"] == "Tamir"
     assert [p.name for p in tmp_path.iterdir()] == ["user_prefs.json"]  # no temp files left
+
+
+def test_prefs_source_set_and_clear(tmp_path):
+    path = tmp_path / "user_prefs.json"
+    prefs = UserPrefs(path, "ILS")
+    assert prefs.get_source(5) is None
+
+    prefs.set_source(5, "EUR")
+    assert UserPrefs(path, "ILS").get_source(5) == "EUR"
+    assert prefs.get_currency(5) == "ILS"  # target unaffected
+
+    prefs.set_source(5, None)
+    assert UserPrefs(path, "ILS").get_source(5) is None
+    assert "source" not in json.loads(path.read_text(encoding="utf-8"))["5"]
