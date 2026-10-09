@@ -4,6 +4,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/), and versions
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-09
+### Added
+- `/currencies` command: a list of about 50 common currencies by region, with a flag, Hebrew name and code.
+- Search for a currency by country or name in `/set` and `/from` (`/from וייטנאם`, `/set dong`, `/from פראג`). Several matches → selection buttons.
+- `/set` and `/from` with no argument show quick-pick buttons for popular currencies (plus a cancel button in `/from`).
+- Currency names in free text: `דונג`, `וון`, `יואן`, `רופיה`, `פורינט`, `לארי`, `dong`, `won`, `forint`, and more.
+### Changed
+- Confirmations and `/currency` show the full currency name with a flag (e.g. 🇻🇳 דונג וייטנאמי (VND)).
+
 ## [0.2.0] - 2026-10-09
 ### Added
 - `/from <currency>` command: a default source currency, saved per user in `user_prefs.json` (`source` field). A bare number, or an image with no currency, is converted from it. Handy for trips. `/from off` cancels.

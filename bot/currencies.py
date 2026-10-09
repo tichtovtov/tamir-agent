@@ -46,6 +46,13 @@ ALIASES: dict[str, str] = {
     "לירה טורקית": "TRY",
     "באט": "THB",
     "זלוטי": "PLN",
+    "דונג": "VND",
+    "וון": "KRW",
+    "יואן": "CNY",
+    "רופיה": "IDR",
+    "רינגיט": "MYR",
+    "פורינט": "HUF",
+    "לארי": "GEL",
     # English names / common non-ISO abbreviations
     "nis": "ILS",
     "shekel": "ILS",
@@ -62,6 +69,17 @@ ALIASES: dict[str, str] = {
     "tl": "TRY",
     "kr": "SEK",
     "lei": "RON",
+    "dong": "VND",
+    "won": "KRW",
+    "yuan": "CNY",
+    "rmb": "CNY",
+    "rupiah": "IDR",
+    "ringgit": "MYR",
+    "forint": "HUF",
+    "lari": "GEL",
+    "zloty": "PLN",
+    "koruna": "CZK",
+    "rand": "ZAR",
 }
 
 # ISO code -> symbol used when displaying results (falls back to the code itself)

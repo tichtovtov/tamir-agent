@@ -9,6 +9,7 @@ Telegram currency-conversion bot (Python, python-telegram-bot, local Ollama visi
 
 ## Conventions
 - All config/env access and constants go through `bot/config.py`.
+- Currency metadata: free-text aliases in `bot/currencies.py`, names/flags/countries for lists & search in `bot/catalog.py`.
 - All user-facing text lives in `bot/messages.py` (Hebrew, HTML parse mode; `html.escape` anything user-provided).
 - Image recognition uses local Ollama only. Don't add cloud LLM/vision APIs.
 - Bot never writes `data/allowed_users.json` (admin edits it by hand); per-user state goes in `user_prefs.json`.

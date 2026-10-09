@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from html import escape
 
-from bot import currencies
+from bot import catalog, currencies
 from bot.rates import Conversion
 
 
@@ -33,15 +33,18 @@ def help_text(name: str | None, target: str, source: str | None) -> str:
         "<b>פקודות:</b>\n"
         "/set &lt;מטבע&gt; - קביעת מטבע היעד, למשל <code>/set USD</code>\n"
         "/from &lt;מטבע&gt; - מטבע מקור כשנשלח רק מספר (<code>/from off</code> לביטול)\n"
-        "/currency - הצגת ההגדרות הנוכחיות\n"
+        "/currencies - רשימת מטבעות והקודים שלהם\n"
+        "/currency - הצגת ההגדרות הנוכחיות\n\n"
+        "לא יודעים את הקוד? כתבו שם מדינה או מטבע: <code>/from וייטנאם</code>, "
+        "<code>/set פסו</code>\n"
         "/help - ההודעה הזו"
     )
 
 
 def _settings_line(target: str, source: str | None) -> str:
-    line = f"מטבע יעד: <b>{target}</b>"
+    line = f"מטבע יעד: <b>{catalog.describe(target)}</b>"
     if source:
-        line += f" · מטבע מקור ברירת מחדל: <b>{source}</b>"
+        line += f"\nמטבע מקור ברירת מחדל: <b>{catalog.describe(source)}</b>"
     return line
 
 
@@ -77,12 +80,12 @@ def current_settings(target: str, source: str | None) -> str:
 
 
 def currency_set(target: str) -> str:
-    return f"✅ מטבע היעד עודכן ל-<b>{target}</b>"
+    return f"✅ מטבע היעד עודכן ל-<b>{catalog.describe(target)}</b>"
 
 
 def source_set(source: str) -> str:
     return (
-        f"✅ מטבע המקור נקבע ל-<b>{source}</b>\n"
+        f"✅ מטבע המקור נקבע ל-<b>{catalog.describe(source)}</b>\n"
         f"מעכשיו מספר בלי מטבע (בטקסט או בתמונה) יומר מ-{source}.\n"
         "לביטול: <code>/from off</code>"
     )
@@ -94,8 +97,41 @@ SOURCE_CLEARED = "✅ מטבע המקור בוטל. מעכשיו צריך לצי
 def unknown_currency(token: str) -> str:
     return (
         f"לא מכיר את המטבע <code>{escape(token)}</code>.\n"
-        "השתמשו בקוד בן 3 אותיות (USD, EUR, GBP, ILS...) או בשם כמו דולר / יורו / שקל."
+        "אפשר לכתוב קוד בן 3 אותיות (USD, EUR...), שם מטבע (דולר, באט) או שם מדינה "
+        "(תאילנד, וייטנאם).\n"
+        "לרשימה המלאה: /currencies"
     )
+
+
+def choose_currency(kind: str) -> str:
+    """Prompt above the quick-pick buttons. `kind` is "set" (target) or "from" (source)."""
+    what = "מטבע היעד" if kind == "set" else "מטבע המקור (למספרים בלי מטבע)"
+    return (
+        f"בחרו {what}:\n"
+        f"לא ברשימה? כתבו <code>/{kind}</code> ואחריו שם מדינה או מטבע, "
+        f"למשל <code>/{kind} וייטנאם</code>. רשימה מלאה: /currencies"
+    )
+
+
+def multiple_matches(token: str) -> str:
+    return f"מצאתי כמה מטבעות שמתאימים ל-<code>{escape(token)}</code>, בחרו אחד:"
+
+
+def currency_list() -> str:
+    """All catalog currencies grouped by region: flag, code and Hebrew name."""
+    lines = ["<b>מטבעות נפוצים</b> (קוד · שם):"]
+    for region in catalog.REGIONS:
+        lines.append(f"\n<b>{region}</b>")
+        lines += [
+            f"{c.flag} <code>{c.code}</code> {c.name_he}"
+            for c in catalog.CATALOG
+            if c.region == region
+        ]
+    lines.append(
+        "\nשימוש: <code>/set VND</code> או <code>/from וייטנאם</code>.\n"
+        "כל קוד מטבע תקני אחר (ISO 4217) נתמך גם אם אינו ברשימה."
+    )
+    return "\n".join(lines)
 
 
 RATES_UNAVAILABLE = "😕 לא הצלחתי לקבל שערי חליפין כרגע. נסו שוב בעוד כמה דקות."

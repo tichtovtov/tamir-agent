@@ -6,6 +6,7 @@ and it replies with the value in the target currency (default: ILS ₪).
 
 - Each user picks a target currency with `/set USD` (or any other currency).
 - Travelling? `/from EUR` sets a default source currency, so you can send just a number (`12.5`) for the whole trip.
+- No need to know codes: `/from וייטנאם`, quick-pick buttons, and `/currencies` for the full list.
 - Prices are read from images by a **local vision model through Ollama**, with no external cloud service.
 - Exchange rates come from [open.er-api.com](https://open.er-api.com) (free, no key needed), with a one-hour cache.
 - Access is limited to a list of authorized users. An unauthorized user gets their Telegram ID and is told to send it to the admin.
@@ -115,8 +116,10 @@ The bot manages a separate file, `data/user_prefs.json`, where it stores each us
 |---|---|
 | Convert text | `100 USD`, `$12.5`, `12,50€`, `1,299.90 EUR`, `50 יורו`, `30 ש"ח` |
 | Convert from an image | Send a photo of a price tag. If the tag has no currency symbol, add it in the caption: `EUR` (or set `/from`) |
-| Change target currency | `/set USD`, `/set יורו` |
+| Change target currency | `/set USD`, `/set יורו`, or `/set` alone for quick-pick buttons |
 | Default source currency (trips) | `/from EUR`, then just send `12.5`. Cancel with `/from off` |
+| Don't know the code? | Search by country or currency name: `/from וייטנאם`, `/set dong`. Several matches (`/set פסו`) → selection buttons |
+| Currency list | `/currencies`: about 50 common currencies with a flag, Hebrew name and code |
 | Show current settings | `/currency` |
 | Help | `/help`, or any unsupported message |
 

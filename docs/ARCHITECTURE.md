@@ -24,6 +24,13 @@ Telegram update
 ```
 Any other input (sticker, voice, unknown command, text that isn't a price) → help message.
 
+**Choosing a currency in `/set` and `/from`** (`_choose_currency` in `handlers.py`):
+1. No argument → quick-pick buttons (`catalog.POPULAR`); in `/from`, also a cancel button.
+2. Code / symbol / alias (`currencies.normalize`) that the rates provider supports → saved directly.
+3. Otherwise `catalog.search` by name or country: one match → saved; several → selection buttons; none → error plus a pointer to `/currencies`.
+
+A button press arrives as a callback query with data `set:<code>` / `from:<code>` / `from:off`, handled by `currency_button`, which validates the code again before saving.
+
 **Determining the source currency** (first one found):
 - Text: currency written in the message → user's `source` (`/from`) → otherwise ask for a currency.
 - Image: currency in the caption → currency the model saw in the image → user's `source` → otherwise ask for a currency.
@@ -37,7 +44,8 @@ Any other input (sticker, voice, unknown command, text that isn't a price) → h
 | `auth.py` | `AllowList`: reads `allowed_users.json`, reloads on mtime change |
 | `storage.py` | `UserPrefs`: each user's target currency in `user_prefs.json`, atomic writes |
 | `parser.py` | Parses text into `ParsedPrice(amount, currency)` |
-| `currencies.py` | Map of symbols/names → ISO code, and display formatting |
+| `currencies.py` | Map of symbols/names → ISO code (for parsing free text), and display formatting |
+| `catalog.py` | Catalog of ~50 common currencies: Hebrew/English name, flag, region, countries. Used for `/currencies`, search, and buttons |
 | `rates.py` | `RatesClient`: fetches USD-based rates, cache, conversion via cross rate |
 | `vision.py` | `OllamaVision`: sends an image to Ollama with a JSON schema and returns `ParsedPrice` |
 | `messages.py` | All user-facing texts (Hebrew, HTML) |
@@ -62,7 +70,8 @@ The split is intentional: the bot never writes to the file the admin edits, so t
 - **A broken allowed_users.json doesn't lock out users**: the previous list is kept.
 
 ## How to extend
-- **New way to write a currency** (e.g. a nickname): add an entry to `ALIASES` in `currencies.py` (lowercase key), plus a test in `tests/test_parser.py`.
+- **New way to write a currency in free text** (e.g. a nickname): add an entry to `ALIASES` in `currencies.py` (lowercase key), plus a test in `tests/test_parser.py`. Only unambiguous names (e.g. not "דינר"; those are handled by search with buttons).
+- **Currency in the list / search by country**: add `_c(...)` to `CATALOG` in `catalog.py` (code, Hebrew name, English name, flag, region, search keywords). For a quick-pick button, also add it to `POPULAR`.
 - **Currency display symbol**: `DISPLAY_SYMBOLS` in `currencies.py`.
 - **Changing text wording**: `messages.py` only.
 - **Improving recognition from images**: change `PROMPT` in `vision.py`, or the model in `.env`. Use `LOG_LEVEL=DEBUG` to see the model's raw output.

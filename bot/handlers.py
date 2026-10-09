@@ -2,7 +2,8 @@
 
 Flow for every update:
 1. `gate` (group -1) stops unauthorized users with a message containing their ID.
-2. Commands (/start, /help, /set, /currency), text, photos, or the fallback handler.
+2. Commands (/start, /help, /set, /from, /currency, /currencies), currency-button
+   presses, text, photos, or the fallback handler.
 Shared services are stored in `application.bot_data["services"]`.
 """
 
@@ -11,11 +12,12 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, User
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import (
     Application,
     ApplicationHandlerStop,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
@@ -23,7 +25,7 @@ from telegram.ext import (
     filters,
 )
 
-from bot import currencies, messages, parser
+from bot import catalog, currencies, messages, parser
 from bot.auth import AllowList
 from bot.config import Config
 from bot.parser import ParsedPrice
@@ -33,8 +35,12 @@ from bot.vision import OllamaVision, VisionUnavailableError
 
 log = logging.getLogger(__name__)
 
+# /set changes the target currency, /from the default source currency
+KIND_SET, KIND_FROM = "set", "from"
 # Arguments to /from that clear the default source currency
 CLEAR_WORDS = {"off", "none", "clear", "ביטול", "בטל", "-"}
+BUTTONS_PER_ROW = 4
+MAX_MATCH_BUTTONS = 12
 
 
 @dataclass
@@ -52,8 +58,10 @@ def _services(context: ContextTypes.DEFAULT_TYPE) -> Services:
     return context.application.bot_data["services"]
 
 
-async def _reply(update: Update, text: str) -> None:
-    await update.effective_message.reply_text(text, parse_mode=ParseMode.HTML)
+async def _reply(update: Update, text: str, keyboard: InlineKeyboardMarkup | None = None) -> None:
+    await update.effective_message.reply_text(
+        text, parse_mode=ParseMode.HTML, reply_markup=keyboard
+    )
 
 
 async def gate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -93,54 +101,110 @@ async def currency_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await _show_settings(update, _services(context))
 
 
-async def _validate_currency(update: Update, s: Services, token: str) -> str | None:
-    """Return the ISO code for `token` if supported; otherwise reply with an error, return None."""
+def _keyboard(kind: str, codes: list[str], with_clear: bool = False) -> InlineKeyboardMarkup:
+    """Buttons (4 per row) whose callback data is "<kind>:<code>", e.g. "from:VND"."""
+    buttons = [
+        InlineKeyboardButton(
+            catalog.BY_CODE[c].label() if c in catalog.BY_CODE else c,
+            callback_data=f"{kind}:{c}",
+        )
+        for c in codes
+    ]
+    rows = [buttons[i : i + BUTTONS_PER_ROW] for i in range(0, len(buttons), BUTTONS_PER_ROW)]
+    if with_clear:
+        rows.append([InlineKeyboardButton("❌ ביטול מטבע המקור", callback_data=f"{kind}:off")])
+    return InlineKeyboardMarkup(rows)
+
+
+def _apply(s: Services, user: User, kind: str, code: str | None) -> str:
+    """Save the choice and return the confirmation text. code=None clears the source."""
+    if kind == KIND_SET:
+        s.prefs.set_currency(user.id, code, user.full_name)
+        log.info("User %s set currency to %s", user.id, code)
+        return messages.currency_set(code)
+    s.prefs.set_source(user.id, code, user.full_name)
+    log.info("User %s set source currency to %s", user.id, code)
+    return messages.source_set(code) if code else messages.SOURCE_CLEARED
+
+
+async def _resolve(s: Services, token: str) -> list[str]:
+    """Supported currency codes matching a code, symbol, alias, name or country.
+
+    Raises:
+        RatesUnavailableError: if the list of supported currencies cannot be fetched.
+    """
+    supported = await s.rates.supported()
     code = currencies.normalize(token)
+    if code in supported:
+        return [code]
+    return [c.code for c in catalog.search(token) if c.code in supported]
+
+
+async def _choose_currency(update: Update, context: ContextTypes.DEFAULT_TYPE, kind: str) -> None:
+    """Shared logic of /set and /from: buttons, direct match, or a pick among several matches."""
+    s = _services(context)
+    user = update.effective_user
+    if not context.args:
+        with_clear = kind == KIND_FROM and s.prefs.get_source(user.id) is not None
+        await _reply(
+            update,
+            messages.choose_currency(kind),
+            _keyboard(kind, list(catalog.POPULAR), with_clear),
+        )
+        return
+
+    token = " ".join(context.args)
+    if kind == KIND_FROM and token.strip().lower() in CLEAR_WORDS:
+        await _reply(update, _apply(s, user, kind, None))
+        return
     try:
-        supported = await s.rates.supported()
+        codes = await _resolve(s, token)
     except RatesUnavailableError:
         await _reply(update, messages.RATES_UNAVAILABLE)
-        return None
-    if code is None or code not in supported:
+        return
+    if not codes:
         await _reply(update, messages.unknown_currency(token))
-        return None
-    return code
+    elif len(codes) == 1:
+        await _reply(update, _apply(s, user, kind, codes[0]))
+    else:
+        await _reply(
+            update, messages.multiple_matches(token), _keyboard(kind, codes[:MAX_MATCH_BUTTONS])
+        )
 
 
 async def set_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/set <currency>: change the target currency."""
-    s = _services(context)
-    user = update.effective_user
-    if not context.args:
-        await _show_settings(update, s)
-        return
-    code = await _validate_currency(update, s, " ".join(context.args))
-    if code is None:
-        return
-    s.prefs.set_currency(user.id, code, user.full_name)
-    log.info("User %s set currency to %s", user.id, code)
-    await _reply(update, messages.currency_set(code))
+    """/set [currency]: change the target currency."""
+    await _choose_currency(update, context, KIND_SET)
 
 
 async def from_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/from <currency>: default source currency for bare numbers; /from off clears it."""
+    """/from [currency]: default source currency for bare numbers; /from off clears it."""
+    await _choose_currency(update, context, KIND_FROM)
+
+
+async def currency_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """A press on a currency button from /set or /from."""
     s = _services(context)
-    user = update.effective_user
-    if not context.args:
-        await _show_settings(update, s)
-        return
-    token = " ".join(context.args)
-    if token.strip().lower() in CLEAR_WORDS:
-        s.prefs.set_source(user.id, None, user.full_name)
-        log.info("User %s cleared source currency", user.id)
-        await _reply(update, messages.SOURCE_CLEARED)
-        return
-    code = await _validate_currency(update, s, token)
-    if code is None:
-        return
-    s.prefs.set_source(user.id, code, user.full_name)
-    log.info("User %s set source currency to %s", user.id, code)
-    await _reply(update, messages.source_set(code))
+    query = update.callback_query
+    kind, _, value = query.data.partition(":")
+    code = None if value == "off" and kind == KIND_FROM else value
+    if code is not None:
+        try:
+            supported = await s.rates.supported()
+        except RatesUnavailableError:
+            await query.answer(messages.RATES_UNAVAILABLE, show_alert=True)
+            return
+        if code not in supported:
+            await query.answer()
+            return
+    text = _apply(s, update.effective_user, kind, code)
+    await query.answer()
+    await query.edit_message_text(text, parse_mode=ParseMode.HTML)
+
+
+async def currencies_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/currencies: list of common currencies with codes."""
+    await _reply(update, messages.currency_list())
 
 
 async def _convert_and_reply(update: Update, s: Services, price: ParsedPrice) -> None:
@@ -219,6 +283,8 @@ def register(app: Application) -> None:
     app.add_handler(CommandHandler("set", set_cmd))
     app.add_handler(CommandHandler("from", from_cmd))
     app.add_handler(CommandHandler("currency", currency_cmd))
+    app.add_handler(CommandHandler("currencies", currencies_cmd))
+    app.add_handler(CallbackQueryHandler(currency_button, pattern=r"^(set|from):"))
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, photo_msg))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_msg))
     # Anything else (stickers, voice, unknown commands...) gets the help text
