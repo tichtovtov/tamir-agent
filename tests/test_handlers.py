@@ -420,3 +420,38 @@ async def test_help_shows_admin_section_only_to_admins(services):
     u = _update()
     await handlers.help_cmd(u, _context(services))
     assert "/add_user" not in _reply_text(u)
+
+
+# --- Personal touch: first name from the users file ------------------------------
+
+
+async def test_setting_confirmation_uses_first_name(services):
+    services.bot_users.add(8, "דנה כהן", added_by=ADMIN_ID)
+    u = _update(user_id=8)
+    await handlers.set_cmd(u, _context(services, ["EUR"]))
+    assert _reply_text(u).startswith("✅ דנה, ")
+
+    u = _update(user_id=8)
+    await handlers.from_cmd(u, _context(services, ["off"]))
+    assert "דנה, " in _reply_text(u)
+
+
+async def test_confirmation_without_name_has_no_prefix(services):
+    u = _update(user_id=ADMIN_ID)  # admin: not in any users file
+    await handlers.set_cmd(u, _context(services, ["EUR"]))
+    assert _reply_text(u).startswith("✅ מטבע היעד")
+
+
+async def test_name_is_html_escaped_in_confirmation(services):
+    services.bot_users.add(8, "<i>x</i>", added_by=ADMIN_ID)
+    u = _update(user_id=8)
+    await handlers.set_cmd(u, _context(services, ["EUR"]))
+    assert "&lt;i&gt;x&lt;/i&gt;, " in _reply_text(u)
+
+
+async def test_nlu_gets_first_name_and_proposal_uses_it(services):
+    services.nlu.interpret.return_value = Interpretation("set_source", currency="THB")
+    u = _update("אני בתאילנד")
+    await handlers.text_msg(u, _context(services))
+    assert services.nlu.interpret.call_args.args[4] == "תמיר"
+    assert _reply_text(u).startswith("תמיר, ")

@@ -107,7 +107,7 @@ The `data/allowed_users.json` file is **edited by hand**:
 }
 ```
 - The key is the Telegram ID (the number the bot shows to an unauthorized user).
-- `name` is used for a personal greeting ("Hi Tamir!") and to tell users apart.
+- `name` is used to address the user personally: in the greeting ("Hi Tamir!"), in setting confirmations ("✅ Tamir, the target currency was updated…"), and by the language model in its clarifying questions (first name only). Conversion replies stay short, without a name.
 - **No restart needed.** The bot detects the change automatically on the next message.
 - If the file has a JSON error, the bot keeps the previous list and logs an error.
 

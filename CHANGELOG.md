@@ -4,6 +4,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/), and versions
 
 ## [Unreleased]
 ### Added
+- More personal replies: the first name from the users file (`allowed_users.json` / `bot_users.json`) now appears in setting confirmations and in "confirm?" questions ("✅ דנה, מטבע היעד עודכן…"). It is also passed to the language model, so clarifying questions can address the user by name. Conversion replies are unchanged. Users without a name get the same texts as before.
 - User management from Telegram for admins (`ADMIN_IDS` in `.env`): `/add_user <id> <name>` allows a user and sends them a welcome message, `/remove_user <id>` removes them, and `/users` lists all authorized users. Added users are saved in a new file, `data/bot_users.json`. The bot still never writes `allowed_users.json`. Admins always pass the allow-list. For other users these commands act like an unknown command, and they appear in the command menu only for admins.
 - Magnitude suffixes in amounts: `k` / `אלף` (thousand), `m` / `מיליון` (million), `b` / `bn` / `מיליארד` (billion), e.g. `10k`, `$1.5m`, `2M ₪`, `5 אלף דולר`. Parsed directly by the regular parser (case-insensitive). Currency aliases such as `kr` and `kč` are not affected. The language-model prompt explains the suffixes too, as a fallback.
 - `docs/ARCHITECTURE.html`: the architecture doc as a standalone page with diagrams (message flow, free-text handling, source-currency precedence, data-file ownership). Supports light and dark mode.

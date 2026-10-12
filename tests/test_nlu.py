@@ -39,6 +39,18 @@ async def test_interpret_sends_settings_and_history():
     )
     assert msgs[1:3] == history
     assert msgs[-1] == {"role": "user", "content": "יורו"}
+    assert "The user's first name: unknown" in msgs[0]["content"]
+
+
+async def test_interpret_sends_user_name():
+    seen = {}
+
+    def handler(req):
+        seen.update(json.loads(req.content))
+        return _reply(action="help")
+
+    await _nlu(handler).interpret("שלום", [], "ILS", None, "תמיר")
+    assert "The user's first name: תמיר" in seen["messages"][0]["content"]
 
 
 def test_parse_clarify_with_question():

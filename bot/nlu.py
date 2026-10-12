@@ -36,6 +36,8 @@ You are the language-understanding component of a Telegram bot that converts pri
 between currencies. Users write in Hebrew or English. Classify the user's latest \
 message and return JSON only.
 
+The user's first name: {name}
+
 The user's current settings:
 - target currency (results are shown in it): {target}
 - default source currency (used when a number has no currency): {source}
@@ -58,7 +60,8 @@ currency just this once ("how much is 100 dollars in euros"), put its code in \
 - "help": greetings, thanks, or messages unrelated to currency conversion.
 - "clarify": the request is about money/currencies but is unclear or missing \
 information you cannot infer. "question" = one short, friendly clarifying question \
-in Hebrew.
+in Hebrew. If the user's name is known, you may address them by it now and then \
+(not in every question); never make up a name.
 
 Target vs. source: the target is the currency the user wants to SEE results in \
 ("show me prices in dollars", "convert everything to euro"); the source is the \
@@ -117,17 +120,25 @@ class OllamaNLU:
         self._model = model
 
     async def interpret(
-        self, text: str, history: list[dict], target: str, source: str | None
+        self,
+        text: str,
+        history: list[dict],
+        target: str,
+        source: str | None,
+        name: str | None = None,
     ) -> Interpretation:
         """Interpret `text` given the recent conversation and the user's settings.
 
         `history` is a list of {"role": "user"|"assistant", "content": str} messages
-        from the current clarification exchange (may be empty).
+        from the current clarification exchange (may be empty). `name` is the user's
+        first name from the users file, so questions can address them personally.
 
         Raises:
             OllamaUnavailableError: if Ollama fails.
         """
-        system = SYSTEM_PROMPT.format(target=target, source=source or "none")
+        system = SYSTEM_PROMPT.format(
+            target=target, source=source or "none", name=name or "unknown"
+        )
         messages = [
             {"role": "system", "content": system},
             *history,

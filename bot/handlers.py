@@ -137,13 +137,14 @@ def _keyboard(kind: str, codes: list[str], with_clear: bool = False) -> InlineKe
 
 def _apply(s: Services, user: User, kind: str, code: str | None) -> str:
     """Save the choice and return the confirmation text. code=None clears the source."""
+    name = s.allow_list.name_of(user.id)
     if kind == KIND_SET:
         s.prefs.set_currency(user.id, code, user.full_name)
         log.info("User %s set currency to %s", user.id, code)
-        return messages.currency_set(code)
+        return messages.currency_set(code, name)
     s.prefs.set_source(user.id, code, user.full_name)
     log.info("User %s set source currency to %s", user.id, code)
-    return messages.source_set(code) if code else messages.SOURCE_CLEARED
+    return messages.source_set(code, name) if code else messages.source_cleared(name)
 
 
 async def _resolve(s: Services, token: str) -> list[str]:
@@ -319,7 +320,11 @@ async def _understand(update: Update, context: ContextTypes.DEFAULT_TYPE, text: 
     await update.effective_message.chat.send_action(ChatAction.TYPING)
     try:
         it = await s.nlu.interpret(
-            text, _conversation(context), s.prefs.get_currency(uid), s.prefs.get_source(uid)
+            text,
+            _conversation(context),
+            s.prefs.get_currency(uid),
+            s.prefs.get_source(uid),
+            messages.first_name(s.allow_list.name_of(uid)),
         )
     except OllamaUnavailableError:
         log.exception("Language model unavailable")
@@ -401,7 +406,7 @@ async def _nlu_setting(
         return
     await _reply(
         update,
-        messages.confirm_setting(kind, codes[0]),
+        messages.confirm_setting(kind, codes[0], s.allow_list.name_of(update.effective_user.id)),
         _confirm_keyboard(f"{kind}:{codes[0]}"),
     )
 
@@ -414,7 +419,9 @@ async def _nlu_clear_source(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await _reply(update, messages.NO_SOURCE_SET)
         return
     await _reply(
-        update, messages.confirm_clear_source(source), _confirm_keyboard(f"{KIND_FROM}:off")
+        update,
+        messages.confirm_clear_source(source, s.allow_list.name_of(update.effective_user.id)),
+        _confirm_keyboard(f"{KIND_FROM}:off"),
     )
 
 

@@ -70,7 +70,7 @@ A button press arrives as a callback query with data `set:<code>` / `from:<code>
 | `rates.py` | `RatesClient`: fetches USD-based rates, cache, conversion via cross rate |
 | `ollama.py` | `OllamaClient`: shared Ollama client (chat with a JSON schema, startup check of models) |
 | `vision.py` | `OllamaVision`: sends an image to the model and returns `ParsedPrice` |
-| `nlu.py` | `OllamaNLU`: interprets free text into an `Interpretation` (action + fields). Includes `SYSTEM_PROMPT` with examples |
+| `nlu.py` | `OllamaNLU`: interprets free text into an `Interpretation` (action + fields), given the user's settings and first name. Includes `SYSTEM_PROMPT` with examples |
 | `messages.py` | All user-facing texts (Hebrew, HTML) |
 
 Services are created once in `__main__.py` and stored in `application.bot_data["services"]` (a `Services` object).

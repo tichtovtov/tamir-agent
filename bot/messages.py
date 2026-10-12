@@ -81,19 +81,32 @@ def current_settings(target: str, source: str | None) -> str:
     return text
 
 
-def currency_set(target: str) -> str:
-    return f"✅ מטבע היעד עודכן ל-<b>{catalog.describe(target)}</b>"
+def first_name(name: str | None) -> str | None:
+    """The first word of a name from the users file ("דנה כהן" -> "דנה"), or None."""
+    parts = (name or "").split()
+    return parts[0] if parts else None
 
 
-def source_set(source: str) -> str:
+def _to(name: str | None) -> str:
+    """Prefix that addresses the user by first name ("דנה, "), or "" without a name."""
+    first = first_name(name)
+    return f"{escape(first)}, " if first else ""
+
+
+def currency_set(target: str, name: str | None = None) -> str:
+    return f"✅ {_to(name)}מטבע היעד עודכן ל-<b>{catalog.describe(target)}</b>"
+
+
+def source_set(source: str, name: str | None = None) -> str:
     return (
-        f"✅ מטבע המקור נקבע ל-<b>{catalog.describe(source)}</b>\n"
+        f"✅ {_to(name)}מטבע המקור נקבע ל-<b>{catalog.describe(source)}</b>\n"
         f"מעכשיו מספר בלי מטבע (בטקסט או בתמונה) יומר מ-{source}.\n"
         "לביטול: <code>/from off</code>"
     )
 
 
-SOURCE_CLEARED = "✅ מטבע המקור בוטל. מעכשיו צריך לציין מטבע עם כל סכום."
+def source_cleared(name: str | None = None) -> str:
+    return f"✅ {_to(name)}מטבע המקור בוטל. מעכשיו צריך לציין מטבע עם כל סכום."
 
 
 def unknown_currency(token: str) -> str:
@@ -175,17 +188,17 @@ def which_currency(token: str, codes: list[str]) -> str:
     return text + "\nכתבו את שם המטבע או הקוד שלו (למשל <code>EUR</code>)."
 
 
-def confirm_setting(kind: str, code: str) -> str:
+def confirm_setting(kind: str, code: str, name: str | None = None) -> str:
     if kind == "set":
-        return f"לשנות את מטבע היעד ל-<b>{catalog.describe(code)}</b>?"
+        return f"{_to(name)}לשנות את מטבע היעד ל-<b>{catalog.describe(code)}</b>?"
     return (
-        f"להגדיר את <b>{catalog.describe(code)}</b> כמטבע המקור?\n"
+        f"{_to(name)}להגדיר את <b>{catalog.describe(code)}</b> כמטבע המקור?\n"
         f"כך תוכלו לשלוח רק מספר (או תמונה בלי מטבע) והוא יומר מ-{code}."
     )
 
 
-def confirm_clear_source(source: str) -> str:
-    return f"לבטל את מטבע המקור <b>{catalog.describe(source)}</b>?"
+def confirm_clear_source(source: str, name: str | None = None) -> str:
+    return f"{_to(name)}לבטל את מטבע המקור <b>{catalog.describe(source)}</b>?"
 
 
 # --- Admin commands (user management) ---
