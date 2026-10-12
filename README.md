@@ -116,6 +116,7 @@ The bot manages a separate file, `data/user_prefs.json`, where it stores each us
 | Action | Example |
 |---|---|
 | Convert text | `100 USD`, `$12.5`, `12,50€`, `1,299.90 EUR`, `50 יורו`, `30 ש"ח` |
+| Thousands / millions | `10k`, `$1.5m`, `2M ₪`, `5 אלף דולר`, `3 מיליון יורו`, `1bn EUR` (`k`/`אלף`, `m`/`מיליון`, `b`/`bn`/`מיליארד`) |
 | Convert from an image | Send a photo of a price tag. If the tag has no currency symbol, add it in the caption: `EUR` (or set `/from`) |
 | Change target currency | `/set USD`, `/set יורו`, or `/set` alone for quick-pick buttons |
 | Default source currency (trips) | `/from EUR`, then just send `12.5`. Cancel with `/from off` |

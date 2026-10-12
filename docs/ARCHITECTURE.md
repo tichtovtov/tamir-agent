@@ -62,7 +62,7 @@ A button press arrives as a callback query with data `set:<code>` / `from:<code>
 | `handlers.py` | Telegram handlers. Thin layer: calls the other modules and returns texts from `messages.py` |
 | `auth.py` | `AllowList`: reads `allowed_users.json`, reloads on mtime change |
 | `storage.py` | `UserPrefs`: each user's target currency in `user_prefs.json`, atomic writes |
-| `parser.py` | Parses text into `ParsedPrice(amount, currency)` |
+| `parser.py` | Parses text into `ParsedPrice(amount, currency)`, including magnitude suffixes (`10k`, `1.5m`, `5 אלף`) |
 | `currencies.py` | Map of symbols/names → ISO code (for parsing free text), and display formatting |
 | `catalog.py` | Catalog of ~50 common currencies: Hebrew/English name, flag, region, countries. Used for `/currencies`, search, and buttons |
 | `rates.py` | `RatesClient`: fetches USD-based rates, cache, conversion via cross rate |
@@ -92,7 +92,7 @@ The split is intentional: the bot never writes to the file the admin edits, so t
 - **A broken allowed_users.json doesn't lock out users**: the previous list is kept.
 
 ## How to extend
-- **New way to write a currency in free text** (e.g. a nickname): add an entry to `ALIASES` in `currencies.py` (lowercase key), plus a test in `tests/test_parser.py`. Only unambiguous names (e.g. not "דינר"; those are handled by search with buttons).
+- **New way to write a currency in free text** (e.g. a nickname): add an entry to `ALIASES` in `currencies.py` (lowercase key), plus a test in `tests/test_parser.py`. Only unambiguous names (e.g. not "דינר"; those are handled by search with buttons). An alias must not be exactly a magnitude suffix (`k`, `m`, `b`, `bn`, `אלף`, `מיליון`...), because the parser reads those as multipliers first.
 - **Currency in the list / search by country**: add `_c(...)` to `CATALOG` in `catalog.py` (code, Hebrew name, English name, flag, region, search keywords). For a quick-pick button, also add it to `POPULAR`.
 - **Currency display symbol**: `DISPLAY_SYMBOLS` in `currencies.py`.
 - **Changing text wording**: `messages.py` only.

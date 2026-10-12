@@ -7,6 +7,10 @@ Rules for number formats:
 - Only '.': a single dot is a decimal separator ("1.299" -> 1.299); several dots are
   thousands separators ("1.234.567").
 - Apostrophes are ignored (Swiss style "1'299").
+
+A magnitude suffix may follow the number: k / אלף (thousand), m / מיליון (million),
+b / bn / מיליארד (billion), e.g. "10k", "$1.5m", "2M ₪", "5 אלף דולר". The suffix must
+end at a non-letter, so currency aliases like "kr" / "kč" are not mistaken for "k".
 """
 
 from __future__ import annotations
@@ -20,6 +24,38 @@ from bot import currencies
 _PRICE_RE = re.compile(
     r"^\s*(?P<pre>[^\d\s][^\d]*?)?\s*(?P<num>\d[\d.,']*)\s*(?P<post>[^\d].*?)?\s*$"
 )
+
+# magnitude suffix at the start of the text after the number, not followed by a letter
+_MAGNITUDE_RE = re.compile(
+    r"^(?P<mag>bn|[kmb]|אלפים|אלף|מיליונים|מיליון|מיליארדים|מיליארד)(?![^\W\d_])\s*",
+    re.IGNORECASE,
+)
+_MAGNITUDES = {
+    "k": 1e3,
+    "אלף": 1e3,
+    "אלפים": 1e3,
+    "m": 1e6,
+    "מיליון": 1e6,
+    "מיליונים": 1e6,
+    "b": 1e9,
+    "bn": 1e9,
+    "מיליארד": 1e9,
+    "מיליארדים": 1e9,
+}
+
+
+def split_magnitude(text: str | None) -> tuple[float, str | None]:
+    """Split a leading magnitude suffix off the text that follows a number.
+
+    Returns (multiplier, rest), e.g. "k USD" -> (1000.0, "USD"), "m" -> (1e6, None),
+    "kr" -> (1.0, "kr"). `rest` is None when nothing is left.
+    """
+    if not text:
+        return 1.0, text
+    m = _MAGNITUDE_RE.match(text)
+    if not m:
+        return 1.0, text
+    return _MAGNITUDES[m.group("mag").lower()], text[m.end() :] or None
 
 
 @dataclass(frozen=True)
@@ -67,7 +103,9 @@ def parse(text: str) -> ParsedPrice | None:
     if amount is None:
         return None
 
-    pre, post = m.group("pre"), m.group("post")
+    pre = m.group("pre")
+    multiplier, post = split_magnitude(m.group("post"))
+    amount *= multiplier
     if not pre and not post:
         return ParsedPrice(amount, None)
 

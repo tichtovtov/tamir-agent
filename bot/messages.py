@@ -27,7 +27,7 @@ def help_text(name: str | None, target: str, source: str | None) -> str:
         f"{_settings_line(target, source)}\n\n"
         "<b>איך משתמשים:</b>\n"
         "• שלחו סכום ומטבע, למשל: <code>100 USD</code>, <code>€25</code>, "
-        "<code>12.50 יורו</code>\n"
+        "<code>12.50 יורו</code>, <code>10k ₪</code>, <code>2 מיליון דולר</code>\n"
         "• או שלחו תמונה של תווית מחיר (אפשר להוסיף בכיתוב את המטבע, למשל <code>EUR</code>)\n"
         "• בנסיעה? קבעו מטבע מקור עם <code>/from EUR</code> ואז אפשר לשלוח רק מספר\n"
         "• אפשר גם לכתוב בחופשיות: <code>כמה זה 30 יורו בדולרים?</code>, "

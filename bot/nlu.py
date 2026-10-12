@@ -68,6 +68,8 @@ Rules:
 - Never invent an amount. A conversion without an amount → "clarify".
 - The amount is the price, never a quantity, weight or count \
 ("3 kg of tomatoes for 12" → amount 12).
+- Magnitude suffixes multiply the amount: "k" / "אלף" = thousand, "m" / "מיליון" = \
+million, "b" / "bn" / "מיליארד" = billion ("1.5k" → 1500, "2 מיליון" → 2000000).
 - If only the currency of a conversion is missing, return "convert" with \
 "currency": null (the bot will use the default or ask).
 - Use the conversation so far: if the bot asked a question, the user's message is \

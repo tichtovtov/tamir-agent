@@ -3,6 +3,8 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
+### Added
+- Magnitude suffixes in amounts: `k` / `אלף` (thousand), `m` / `מיליון` (million), `b` / `bn` / `מיליארד` (billion), e.g. `10k`, `$1.5m`, `2M ₪`, `5 אלף דולר`. Parsed directly by the regular parser (case-insensitive). Currency aliases such as `kr` and `kč` are not affected. The language-model prompt explains the suffixes too, as a fallback.
 
 ## [0.4.0] - 2026-10-09
 ### Added
