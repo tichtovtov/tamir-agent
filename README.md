@@ -23,7 +23,7 @@ and it replies with the value in the target currency (default: ILS ₪).
 - [Development](#development)
 - [Troubleshooting](#troubleshooting)
 
-Architecture details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Change history: [CHANGELOG.md](CHANGELOG.md)
+Architecture details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (with diagrams: [docs/ARCHITECTURE.html](docs/ARCHITECTURE.html)) · Change history: [CHANGELOG.md](CHANGELOG.md)
 
 ---
 

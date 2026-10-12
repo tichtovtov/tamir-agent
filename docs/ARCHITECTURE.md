@@ -1,5 +1,7 @@
 # Architecture
 
+A version with diagrams: [ARCHITECTURE.html](ARCHITECTURE.html) (open it in a browser). Keep the two files in sync.
+
 ## Message flow
 ```
 Telegram update

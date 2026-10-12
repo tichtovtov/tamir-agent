@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Currency Bot Architecture</title>
+<!-- HTML version of docs/ARCHITECTURE.md. Keep the two in sync when either changes. -->
+<style>
+  :root {
+    --bg: #fbfaf8;
+    --fg: #1f2328;
+    --muted: #5d6470;
+    --line: #d9dce1;
+    --panel: #ffffff;
+    --box: #ffffff;
+    --box-soft: #f1f3f6;
+    --accent: #0b7a5c;
+    --accent-soft: #e3f4ee;
+    --warn: #b4351f;
+    --code-bg: #eef0f3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #15171a;
+      --fg: #e6e8eb;
+      --muted: #9aa2ad;
+      --line: #343941;
+      --panel: #1c1f23;
+      --box: #1f2328;
+      --box-soft: #262b31;
+      --accent: #4fd1a5;
+      --accent-soft: #173a30;
+      --warn: #ff8a73;
+      --code-bg: #262b31;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #15171a;
+    --fg: #e6e8eb;
+    --muted: #9aa2ad;
+    --line: #343941;
+    --panel: #1c1f23;
+    --box: #1f2328;
+    --box-soft: #262b31;
+    --accent: #4fd1a5;
+    --accent-soft: #173a30;
+    --warn: #ff8a73;
+    --code-bg: #262b31;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  main { max-width: 980px; margin: 0 auto; padding: 32px 16px 80px; }
+  header h1 { font-size: 2rem; margin: 0 0 4px; letter-spacing: -0.01em; }
+  header p { margin: 0; color: var(--muted); }
+  nav {
+    position: sticky; top: 0; z-index: 2;
+    display: flex; gap: 6px; flex-wrap: wrap;
+    margin: 20px -16px 8px; padding: 10px 16px;
+    background: color-mix(in srgb, var(--bg) 92%, transparent);
+    backdrop-filter: blur(6px);
+    border-bottom: 1px solid var(--line);
+  }
+  nav a {
+    font-size: 0.85rem; text-decoration: none; color: var(--fg);
+    padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel);
+  }
+  nav a:hover { border-color: var(--accent); color: var(--accent); }
+  h2 { font-size: 1.4rem; margin: 48px 0 12px; padding-top: 8px; scroll-margin-top: 64px; }
+  h3 { font-size: 1.05rem; margin: 28px 0 8px; scroll-margin-top: 64px; }
+  a { color: var(--accent); }
+  code {
+    font: 0.86em/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--code-bg); padding: 1px 5px; border-radius: 4px;
+    overflow-wrap: anywhere;
+  }
+  ul, ol { padding-left: 1.3em; }
+  li { margin: 4px 0; }
+
+  figure {
+    margin: 16px 0 20px; padding: 16px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  }
+  figure svg { display: block; width: 100%; height: auto; color: var(--fg); }
+  figcaption { margin-top: 10px; font-size: 0.88rem; color: var(--muted); }
+  .scroll { overflow-x: auto; }
+
+  /* SVG classes (styled from the page so the drawings follow the theme) */
+  svg text { fill: currentColor; font-size: 13px; font-family: inherit; }
+  svg .sm { font-size: 11px; fill: var(--muted); }
+  svg .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  svg .b { font-weight: 600; }
+  svg .box { fill: var(--box); stroke: currentColor; stroke-width: 1.2; }
+  svg .soft { fill: var(--box-soft); stroke: var(--line); stroke-width: 1; }
+  svg .acc { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.5; }
+  svg .zone { fill: none; stroke: var(--accent); stroke-width: 1.2; stroke-dasharray: 5 4; }
+  svg .ln { fill: none; stroke: currentColor; stroke-width: 1.3; }
+  svg .dash { stroke-dasharray: 5 4; }
+  svg .acc-ln { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+  svg .warn-ln { fill: none; stroke: var(--warn); stroke-width: 1.5; stroke-dasharray: 5 4; }
+  svg .acc-t { fill: var(--accent); }
+  svg .warn-t { fill: var(--warn); }
+  svg .head { fill: currentColor; }
+  svg .acc-head { fill: var(--accent); }
+  svg .warn-head { fill: var(--warn); }
+
+  .principles { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin: 12px 0; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .card h4 { margin: 0 0 6px; font-size: 0.98rem; }
+  .card p { margin: 0; font-size: 0.93rem; }
+  .card.key { border-color: var(--accent); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.93rem; }
+  .table-wrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+  th { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+  tr:last-child td { border-bottom: none; }
+  td:first-child { white-space: nowrap; }
+
+  dl.extend { display: grid; grid-template-columns: minmax(180px, 260px) 1fr; gap: 0; margin: 0;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  dl.extend dt, dl.extend dd { margin: 0; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  dl.extend dt { font-weight: 600; }
+  dl.extend dt:last-of-type, dl.extend dd:last-of-type { border-bottom: none; }
+  @media (max-width: 640px) {
+    dl.extend { grid-template-columns: 1fr; }
+    dl.extend dt { border-bottom: none; padding-bottom: 0; }
+    td:first-child { white-space: normal; }
+  }
+  .note { font-size: 0.9rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+
+<header>
+  <h1>Architecture</h1>
+  <p>Telegram currency-conversion bot · Python, python-telegram-bot, local Ollama. HTML version of <code>docs/ARCHITECTURE.md</code>.</p>
+</header>
+
+<nav aria-label="Sections">
+  <a href="#flow">Message flow</a>
+  <a href="#nlu">Free text</a>
+  <a href="#choose">Choosing a currency</a>
+  <a href="#source">Source currency</a>
+  <a href="#modules">Modules</a>
+  <a href="#data">Data files</a>
+  <a href="#decisions">Design decisions</a>
+  <a href="#extend">How to extend</a>
+  <a href="#tests">Tests</a>
+</nav>
+
+<!-- ───────────────────────── Message flow ───────────────────────── -->
+<h2 id="flow">Message flow</h2>
+
+<figure>
+  <div class="scroll">
+  <svg viewBox="0 0 760 560" role="img" aria-label="Every update passes the allow-list gate, is dispatched by type, and text or photo prices are resolved to a source currency, converted by the rates client and formatted as the reply.">
+    <defs>
+      <marker id="f1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker>
+      <marker id="f1w" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="warn-head"/></marker>
+      <marker id="f1g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="acc-head"/></marker>
+    </defs>
+
+    <!-- update -->
+    <rect class="soft" x="300" y="16" width="160" height="36" rx="18"/>
+    <text x="380" y="39" text-anchor="middle" class="b">Telegram update</text>
+    <line class="ln" x1="380" y1="52" x2="380" y2="84" marker-end="url(#f1a)"/>
+
+    <!-- gate -->
+    <rect class="box" x="270" y="86" width="220" height="44" rx="6"/>
+    <text x="380" y="106" text-anchor="middle" class="b">gate</text>
+    <text x="380" y="122" text-anchor="middle" class="mono sm">auth.AllowList</text>
+    <line class="warn-ln" x1="490" y1="108" x2="566" y2="108" marker-end="url(#f1w)"/>
+    <text x="528" y="100" text-anchor="middle" class="sm warn-t">not in list</text>
+    <rect class="box" x="568" y="86" width="176" height="44" rx="6"/>
+    <text x="656" y="106" text-anchor="middle">"send your ID to Elad"</text>
+    <text x="656" y="122" text-anchor="middle" class="sm">stop</text>
+
+    <!-- dispatch bus -->
+    <line class="ln" x1="380" y1="130" x2="380" y2="156"/>
+    <text x="388" y="148" class="sm">authorized</text>
+    <line class="ln" x1="95" y1="160" x2="665" y2="160"/>
+    <line class="ln" x1="380" y1="156" x2="380" y2="160"/>
+    <line class="ln" x1="95" y1="160" x2="95" y2="182" marker-end="url(#f1a)"/>
+    <line class="ln" x1="285" y1="160" x2="285" y2="182" marker-end="url(#f1a)"/>
+    <line class="ln" x1="480" y1="160" x2="480" y2="182" marker-end="url(#f1a)"/>
+    <line class="ln" x1="665" y1="160" x2="665" y2="182" marker-end="url(#f1a)"/>
+
+    <!-- input types -->
+    <rect class="soft" x="20" y="184" width="150" height="40" rx="6"/>
+    <text x="95" y="203" text-anchor="middle" class="mono">/start · /help</text>
+    <text x="95" y="217" text-anchor="middle" class="sm">or anything else</text>
+    <rect class="soft" x="200" y="184" width="170" height="40" rx="6"/>
+    <text x="285" y="203" text-anchor="middle" class="mono">/set · /from</text>
+    <text x="285" y="217" text-anchor="middle" class="mono sm">/currency</text>
+    <rect class="soft" x="400" y="184" width="160" height="40" rx="6"/>
+    <text x="480" y="209" text-anchor="middle">text</text>
+    <rect class="soft" x="590" y="184" width="150" height="40" rx="6"/>
+    <text x="665" y="203" text-anchor="middle">photo / image</text>
+    <text x="665" y="217" text-anchor="middle" class="sm">+ optional caption</text>
+
+    <line class="ln" x1="95" y1="224" x2="95" y2="256" marker-end="url(#f1a)"/>
+    <line class="ln" x1="285" y1="224" x2="285" y2="256" marker-end="url(#f1a)"/>
+    <line class="ln" x1="480" y1="224" x2="480" y2="256" marker-end="url(#f1a)"/>
+    <line class="ln" x1="665" y1="224" x2="665" y2="256" marker-end="url(#f1a)"/>
+
+    <!-- handlers -->
+    <rect class="box" x="20" y="258" width="150" height="44" rx="6"/>
+    <text x="95" y="285" text-anchor="middle">help message</text>
+    <rect class="box" x="200" y="258" width="170" height="44" rx="6"/>
+    <text x="285" y="278" text-anchor="middle" class="mono">storage.UserPrefs</text>
+    <text x="285" y="294" text-anchor="middle" class="sm">read / save settings</text>
+    <rect class="box" x="400" y="258" width="160" height="44" rx="6"/>
+    <text x="480" y="285" text-anchor="middle" class="mono">parser.parse()</text>
+    <rect class="box" x="590" y="258" width="150" height="44" rx="6"/>
+    <text x="665" y="278" text-anchor="middle" class="mono">vision.</text>
+    <text x="665" y="294" text-anchor="middle" class="mono">extract_price()</text>
+
+    <!-- not recognized → NLU -->
+    <polyline class="acc-ln dash" points="420,302 420,330 285,330 285,370" marker-end="url(#f1g)"/>
+    <text x="352" y="324" text-anchor="middle" class="sm acc-t">not recognized</text>
+    <rect class="acc" x="200" y="372" width="170" height="44" rx="6"/>
+    <text x="285" y="392" text-anchor="middle" class="mono">nlu.interpret()</text>
+    <text x="285" y="408" text-anchor="middle" class="sm">see next diagram</text>
+
+    <!-- merge into resolve -->
+    <polyline class="ln" points="510,302 510,346 572,346" />
+    <polyline class="ln" points="665,302 665,346 572,346" />
+    <line class="ln" x1="572" y1="346" x2="572" y2="370" marker-end="url(#f1a)"/>
+    <text x="520" y="340" class="sm">price</text>
+    <text x="675" y="340" class="sm">price</text>
+    <rect class="box" x="472" y="372" width="200" height="44" rx="6"/>
+    <text x="572" y="392" text-anchor="middle" class="b">resolve source currency</text>
+    <text x="572" y="408" text-anchor="middle" class="sm">written → /from default → ask</text>
+
+    <line class="ln" x1="572" y1="416" x2="572" y2="440" marker-end="url(#f1a)"/>
+    <rect class="box" x="457" y="442" width="230" height="40" rx="6"/>
+    <text x="572" y="467" text-anchor="middle" class="mono">rates.RatesClient.convert()</text>
+
+    <line class="ln" x1="572" y1="482" x2="572" y2="506" marker-end="url(#f1a)"/>
+    <rect class="soft" x="452" y="508" width="240" height="36" rx="18"/>
+    <text x="572" y="531" text-anchor="middle"><tspan class="mono">messages.conversion()</tspan> → reply</text>
+
+    <!-- nlu convert joins resolve -->
+    <line class="acc-ln" x1="370" y1="394" x2="470" y2="394" marker-end="url(#f1g)"/>
+    <text x="420" y="386" text-anchor="middle" class="sm acc-t">convert</text>
+  </svg>
+  </div>
+  <figcaption>An update passes the allow-list gate, then goes to a handler by type. Text and photo prices both go through the same steps: resolve the source currency, convert, format the reply. Text the parser doesn't recognize goes to the language model (green). Any other input, such as a sticker, a voice message or an unknown command, gets the help message.</figcaption>
+</figure>
+
+<!-- ───────────────────────── NLU ───────────────────────── -->
+<h2 id="nlu">Free text: parser first, language model second</h2>
+<p>Free text that <code>parser.parse</code> doesn't recognize goes to <code>nlu.OllamaNLU.interpret</code> (a language model in Ollama), which returns an <code>Interpretation</code>. A bare number while a question is pending also goes to the model, so it can be read as the answer.</p>
+
+<figure>
+  <div class="scroll">
+  <svg viewBox="0 0 880 400" role="img" aria-label="Recognized prices go straight to conversion. Unrecognized text goes to the language model, whose action is validated or confirmed by our code before anything happens.">
+    <defs>
+      <marker id="f2a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker>
+      <marker id="f2g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="acc-head"/></marker>
+    </defs>
+
+    <!-- top lane -->
+    <rect class="soft" x="20" y="34" width="90" height="36" rx="18"/>
+    <text x="65" y="57" text-anchor="middle">text</text>
+    <line class="ln" x1="110" y1="52" x2="138" y2="52" marker-end="url(#f2a)"/>
+    <rect class="box" x="140" y="30" width="150" height="44" rx="6"/>
+    <text x="215" y="57" text-anchor="middle" class="mono">parser.parse</text>
+    <line class="ln" x1="290" y1="52" x2="718" y2="52" marker-end="url(#f2a)"/>
+    <text x="494" y="44" text-anchor="middle" class="sm">clear price · instant, deterministic</text>
+    <rect class="box" x="720" y="30" width="140" height="44" rx="6"/>
+    <text x="790" y="57" text-anchor="middle" class="b">conversion</text>
+
+    <!-- down to nlu -->
+    <line class="ln" x1="215" y1="74" x2="215" y2="148" marker-end="url(#f2a)"/>
+    <text x="207" y="104" text-anchor="end" class="sm">not recognized, or</text>
+    <text x="207" y="118" text-anchor="end" class="sm">answer to a question</text>
+
+    <rect class="box" x="140" y="150" width="150" height="56" rx="6"/>
+    <text x="215" y="173" text-anchor="middle" class="mono">nlu.interpret()</text>
+    <text x="215" y="191" text-anchor="middle" class="sm">Ollama · ~6 s</text>
+
+    <!-- memory -->
+    <rect class="soft" x="140" y="290" width="150" height="60" rx="6"/>
+    <text x="215" y="312" text-anchor="middle">conversation memory</text>
+    <text x="215" y="328" text-anchor="middle" class="sm">context.user_data</text>
+    <text x="215" y="342" text-anchor="middle" class="sm">≤ 10 min, RAM only</text>
+    <line class="ln dash" x1="215" y1="288" x2="215" y2="208" marker-end="url(#f2a)"/>
+    <text x="223" y="252" class="sm">+ user settings</text>
+
+    <!-- fan-out spine -->
+    <line class="ln" x1="290" y1="178" x2="318" y2="178"/>
+    <line class="ln" x1="318" y1="120" x2="318" y2="330"/>
+    <line class="ln" x1="318" y1="120" x2="338" y2="120" marker-end="url(#f2a)"/>
+    <line class="ln" x1="318" y1="190" x2="338" y2="190" marker-end="url(#f2a)"/>
+    <line class="ln" x1="318" y1="260" x2="338" y2="260" marker-end="url(#f2a)"/>
+    <line class="ln" x1="318" y1="330" x2="338" y2="330" marker-end="url(#f2a)"/>
+
+    <!-- actions -->
+    <rect class="box" x="340" y="100" width="180" height="40" rx="6"/>
+    <text x="430" y="125" text-anchor="middle" class="mono">convert</text>
+    <rect class="box" x="340" y="166" width="180" height="48" rx="6"/>
+    <text x="430" y="186" text-anchor="middle" class="mono sm">set_target · set_source</text>
+    <text x="430" y="202" text-anchor="middle" class="mono sm">clear_source</text>
+    <rect class="box" x="340" y="240" width="180" height="40" rx="6"/>
+    <text x="430" y="265" text-anchor="middle" class="mono">clarify</text>
+    <rect class="box" x="340" y="306" width="180" height="48" rx="6"/>
+    <text x="430" y="326" text-anchor="middle" class="mono sm">show_settings · help</text>
+    <text x="430" y="342" text-anchor="middle" class="mono sm">list_currencies</text>
+
+    <!-- our code zone -->
+    <rect class="zone" x="546" y="90" width="152" height="204" rx="10"/>
+    <text x="622" y="84" text-anchor="middle" class="sm acc-t b">our code decides</text>
+
+    <line class="ln" x1="520" y1="120" x2="558" y2="120" marker-end="url(#f2a)"/>
+    <rect class="acc" x="560" y="100" width="124" height="40" rx="6"/>
+    <text x="622" y="118" text-anchor="middle" class="mono sm">_resolve</text>
+    <text x="622" y="132" text-anchor="middle" class="sm">validate currency</text>
+
+    <line class="ln" x1="520" y1="190" x2="558" y2="190" marker-end="url(#f2a)"/>
+    <rect class="acc" x="560" y="170" width="124" height="40" rx="6"/>
+    <text x="622" y="195" text-anchor="middle">✅ / ❌ button</text>
+
+    <line class="ln" x1="520" y1="260" x2="558" y2="260" marker-end="url(#f2a)"/>
+    <rect class="acc" x="560" y="240" width="124" height="40" rx="6"/>
+    <text x="622" y="265" text-anchor="middle" class="mono sm">html.escape</text>
+
+    <!-- outcomes -->
+    <polyline class="ln" points="684,112 710,112 710,74" marker-end="url(#f2a)"/>
+    <line class="ln" x1="684" y1="128" x2="718" y2="128" marker-end="url(#f2a)"/>
+    <rect class="box" x="720" y="110" width="140" height="36" rx="6"/>
+    <text x="790" y="126" text-anchor="middle" class="sm">unknown currency →</text>
+    <text x="790" y="140" text-anchor="middle" class="sm">ask the user</text>
+
+    <line class="acc-ln" x1="684" y1="190" x2="718" y2="190" marker-end="url(#f2g)"/>
+    <rect class="box" x="720" y="172" width="140" height="36" rx="6"/>
+    <text x="790" y="195" text-anchor="middle">settings saved</text>
+
+    <line class="ln" x1="684" y1="260" x2="718" y2="260" marker-end="url(#f2a)"/>
+    <rect class="box" x="720" y="242" width="140" height="36" rx="6"/>
+    <text x="790" y="258" text-anchor="middle" class="sm">model's question</text>
+    <text x="790" y="272" text-anchor="middle" class="sm">+ saved to memory</text>
+    <polyline class="ln dash" points="790,278 790,384 215,384 215,352" marker-end="url(#f2a)"/>
+    <text x="502" y="378" text-anchor="middle" class="sm">next message is read in this context</text>
+
+    <line class="ln" x1="520" y1="330" x2="718" y2="330" marker-end="url(#f2a)"/>
+    <rect class="box" x="720" y="312" width="140" height="36" rx="6"/>
+    <text x="790" y="335" text-anchor="middle" class="sm">existing response</text>
+  </svg>
+  </div>
+  <figcaption>The model only proposes an action. Before anything happens, our code (dashed zone) validates the currency, asks for a confirmation button, or escapes the text. When the bot asks a question, the exchange is saved to memory, so the answer to it is read in context.</figcaption>
+</figure>
+
+<div class="principles">
+  <div class="card key">
+    <h4>The model only interprets; the code decides</h4>
+    <p>Every currency the model returns goes through <code>_resolve</code> (aliases + catalog + the rates provider's list). An unrecognized currency → a question to the user. A settings change → only after a button press.</p>
+  </div>
+  <div class="card">
+    <h4>Conversation memory</h4>
+    <p>When the bot asks a question (the model's question, "which currency?" for a bare number, or an image without a currency), the exchange is stored in <code>context.user_data</code>, in memory only. The next message goes to the model together with the memory, so <code>יורו</code> or <code>50</code> is understood in context. It is cleared after a successful action or after <code>CONVERSATION_TTL_SECONDS</code> (10 min), and holds at most <code>CONVERSATION_MAX_MESSAGES</code>.</p>
+  </div>
+  <div class="card">
+    <h4>If Ollama is down</h4>
+    <p>Unrecognized text gets the help message (same as before the feature). Regular conversions aren't affected.</p>
+  </div>
+</div>
+
+<!-- ───────────────────────── Choosing ───────────────────────── -->
+<h2 id="choose">Choosing a currency in <code>/set</code> and <code>/from</code></h2>
+<p>Implemented in <code>_choose_currency</code> in <code>handlers.py</code>:</p>
+<ol>
+  <li><strong>No argument</strong> → quick-pick buttons (<code>catalog.POPULAR</code>); in <code>/from</code>, also a cancel button.</li>
+  <li><strong>Code / symbol / alias</strong> (<code>currencies.normalize</code>) that the rates provider supports → saved directly.</li>
+  <li><strong>Otherwise</strong> <code>catalog.search</code> by name or country: one match → saved; several → selection buttons; none → error plus a pointer to <code>/currencies</code>.</li>
+</ol>
+<p>A button press arrives as a callback query with data <code>set:&lt;code&gt;</code> / <code>from:&lt;code&gt;</code> / <code>from:off</code>, handled by <code>currency_button</code>, which validates the code again before saving.</p>
+
+<!-- ───────────────────────── Source currency ───────────────────────── -->
+<h2 id="source">Determining the source currency</h2>
+
+<figure>
+  <div class="scroll">
+  <svg viewBox="0 0 830 180" role="img" aria-label="The source currency is the first one found: for text, the currency written in the message, then the /from default, then ask; for images, the caption, then the currency seen in the image, then the /from default, then ask.">
+    <defs>
+      <marker id="f3a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker>
+    </defs>
+    <text x="10" y="58" class="b">Text</text>
+    <text x="10" y="138" class="b">Image</text>
+
+    <!-- text lane -->
+    <rect class="box" x="90" y="34" width="150" height="40" rx="6"/>
+    <text x="165" y="59" text-anchor="middle">written in message</text>
+    <line class="ln" x1="240" y1="54" x2="468" y2="54" marker-end="url(#f3a)"/>
+    <text x="354" y="47" text-anchor="middle" class="sm">none</text>
+    <rect class="box" x="470" y="34" width="150" height="40" rx="6"/>
+    <text x="545" y="52" text-anchor="middle"><tspan class="mono">/from</tspan> default</text>
+    <text x="545" y="67" text-anchor="middle" class="sm">user's source</text>
+    <line class="ln" x1="620" y1="54" x2="658" y2="54" marker-end="url(#f3a)"/>
+    <text x="639" y="47" text-anchor="middle" class="sm">none</text>
+    <rect class="soft" x="660" y="34" width="150" height="40" rx="20"/>
+    <text x="735" y="59" text-anchor="middle">ask "which currency?"</text>
+
+    <!-- image lane -->
+    <rect class="box" x="90" y="114" width="150" height="40" rx="6"/>
+    <text x="165" y="139" text-anchor="middle">in the caption</text>
+    <line class="ln" x1="240" y1="134" x2="278" y2="134" marker-end="url(#f3a)"/>
+    <text x="259" y="127" text-anchor="middle" class="sm">none</text>
+    <rect class="box" x="280" y="114" width="150" height="40" rx="6"/>
+    <text x="355" y="132" text-anchor="middle">seen in the image</text>
+    <text x="355" y="147" text-anchor="middle" class="sm">by the vision model</text>
+    <line class="ln" x1="430" y1="134" x2="468" y2="134" marker-end="url(#f3a)"/>
+    <text x="449" y="127" text-anchor="middle" class="sm">none</text>
+    <rect class="box" x="470" y="114" width="150" height="40" rx="6"/>
+    <text x="545" y="132" text-anchor="middle"><tspan class="mono">/from</tspan> default</text>
+    <text x="545" y="147" text-anchor="middle" class="sm">user's source</text>
+    <line class="ln" x1="620" y1="134" x2="658" y2="134" marker-end="url(#f3a)"/>
+    <text x="639" y="127" text-anchor="middle" class="sm">none</text>
+    <rect class="soft" x="660" y="114" width="150" height="40" rx="20"/>
+    <text x="735" y="139" text-anchor="middle">ask "which currency?"</text>
+  </svg>
+  </div>
+  <figcaption>The first currency found wins. A currency the user writes always beats the <code>/from</code> default. Images have one extra step: the currency the model saw on the price tag.</figcaption>
+</figure>
+
+<!-- ───────────────────────── Modules ───────────────────────── -->
+<h2 id="modules">Modules (<code>bot/</code>)</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>File</th><th>Responsibility</th></tr></thead>
+  <tbody>
+    <tr><td><code>__main__.py</code></td><td>Entry point: loads config, startup checks (data dir, Ollama), builds the services, starts polling</td></tr>
+    <tr><td><code>config.py</code></td><td>Reads <code>.env</code> into a <code>Config</code> object. <strong>The only place</strong> that reads environment variables or holds fixed constants</td></tr>
+    <tr><td><code>handlers.py</code></td><td>Telegram handlers. Thin layer: calls the other modules and returns texts from <code>messages.py</code></td></tr>
+    <tr><td><code>auth.py</code></td><td><code>AllowList</code>: reads <code>allowed_users.json</code>, reloads on mtime change</td></tr>
+    <tr><td><code>storage.py</code></td><td><code>UserPrefs</code>: each user's target currency in <code>user_prefs.json</code>, atomic writes</td></tr>
+    <tr><td><code>parser.py</code></td><td>Parses text into <code>ParsedPrice(amount, currency)</code>, including magnitude suffixes (<code>10k</code>, <code>1.5m</code>, <code>5 אלף</code>)</td></tr>
+    <tr><td><code>currencies.py</code></td><td>Map of symbols/names → ISO code (for parsing free text), and display formatting</td></tr>
+    <tr><td><code>catalog.py</code></td><td>Catalog of ~50 common currencies: Hebrew/English name, flag, region, countries. Used for <code>/currencies</code>, search, and buttons</td></tr>
+    <tr><td><code>rates.py</code></td><td><code>RatesClient</code>: fetches USD-based rates, cache, conversion via cross rate</td></tr>
+    <tr><td><code>ollama.py</code></td><td><code>OllamaClient</code>: shared Ollama client (chat with a JSON schema, startup check of models)</td></tr>
+    <tr><td><code>vision.py</code></td><td><code>OllamaVision</code>: sends an image to the model and returns <code>ParsedPrice</code></td></tr>
+    <tr><td><code>nlu.py</code></td><td><code>OllamaNLU</code>: interprets free text into an <code>Interpretation</code> (action + fields). Includes <code>SYSTEM_PROMPT</code> with examples</td></tr>
+    <tr><td><code>messages.py</code></td><td>All user-facing texts (Hebrew, HTML)</td></tr>
+  </tbody>
+</table>
+</div>
+<p class="note">Services are created once in <code>__main__.py</code> and stored in <code>application.bot_data["services"]</code> (a <code>Services</code> object).</p>
+
+<!-- ───────────────────────── Data files ───────────────────────── -->
+<h2 id="data">Data files (<code>data/</code>, not in git)</h2>
+
+<figure>
+  <div class="scroll">
+  <svg viewBox="0 0 760 200" role="img" aria-label="The admin edits allowed_users.json by hand and the bot only reads it; the bot reads and writes user_prefs.json, which the admin doesn't need to touch.">
+    <defs>
+      <marker id="f4a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker>
+      <marker id="f4w" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="warn-head"/></marker>
+    </defs>
+    <rect class="soft" x="20" y="34" width="120" height="44" rx="22"/>
+    <text x="80" y="61" text-anchor="middle" class="b">Admin</text>
+
+    <rect class="box" x="250" y="30" width="220" height="52" rx="6"/>
+    <text x="360" y="52" text-anchor="middle" class="mono">allowed_users.json</text>
+    <text x="360" y="70" text-anchor="middle" class="sm">allowed users · reread on change</text>
+
+    <rect class="box" x="250" y="126" width="220" height="52" rx="6"/>
+    <text x="360" y="148" text-anchor="middle" class="mono">user_prefs.json</text>
+    <text x="360" y="166" text-anchor="middle" class="sm">target + /from source per user</text>
+
+    <rect class="acc" x="600" y="30" width="140" height="148" rx="8"/>
+    <text x="670" y="100" text-anchor="middle" class="b">Bot</text>
+    <text x="670" y="116" text-anchor="middle" class="sm">auth · storage</text>
+
+    <line class="ln" x1="140" y1="56" x2="248" y2="56" marker-end="url(#f4a)"/>
+    <text x="194" y="48" text-anchor="middle" class="sm">edits by hand</text>
+
+    <line class="ln" x1="470" y1="46" x2="598" y2="46" marker-end="url(#f4a)"/>
+    <text x="534" y="39" text-anchor="middle" class="sm">reads</text>
+    <line class="warn-ln" x1="598" y1="68" x2="472" y2="68" marker-end="url(#f4w)"/>
+    <text x="534" y="84" text-anchor="middle" class="sm warn-t">✕ never writes</text>
+
+    <line class="ln" x1="598" y1="142" x2="472" y2="142" marker-end="url(#f4a)"/>
+    <text x="534" y="135" text-anchor="middle" class="sm">writes (atomic)</text>
+    <line class="ln" x1="470" y1="164" x2="598" y2="164" marker-end="url(#f4a)"/>
+    <text x="534" y="180" text-anchor="middle" class="sm">reads</text>
+  </svg>
+  </div>
+  <figcaption>Each file has exactly one writer. The bot never writes the file the admin edits, so a manual edit can't be overwritten.</figcaption>
+</figure>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>File</th><th>Who writes it</th><th>Format</th></tr></thead>
+  <tbody>
+    <tr><td><code>allowed_users.json</code></td><td>Admin, by hand</td><td><code>{"&lt;telegram_id&gt;": {"name": "&lt;name&gt;"}}</code></td></tr>
+    <tr><td><code>user_prefs.json</code></td><td>The bot</td><td><code>{"&lt;telegram_id&gt;": {"name": "&lt;Telegram name&gt;", "currency": "USD", "source": "EUR"}}</code></td></tr>
+  </tbody>
+</table>
+</div>
+<p class="note"><code>currency</code> = target currency (default <code>DEFAULT_CURRENCY</code>). <code>source</code> = default source currency from <code>/from</code>, optional; <code>/from off</code> removes the field.</p>
+
+<!-- ───────────────────────── Decisions ───────────────────────── -->
+<h2 id="decisions">Design decisions</h2>
+<div class="principles">
+  <div class="card"><h4>Polling, not a webhook</h4><p>No public address or SSL certificate needed. Works behind a home NAT.</p></div>
+  <div class="card"><h4>Local Ollama</h4><p>Images and text never leave the machine, and there's no per-use cost. The JSON schema in <code>format</code> forces structured output.</p></div>
+  <div class="card"><h4>Parser first, model second</h4><p>Common messages (<code>100 USD</code>) are answered immediately and deterministically; only what isn't recognized pays the ~6 seconds of the language model.</p></div>
+  <div class="card"><h4>Rates via USD</h4><p>A single API call gives the rate between any pair of currencies: <code>rate = rates[target] / rates[source]</code>.</p></div>
+  <div class="card"><h4>Stale cache when the API fails</h4><p>Better to return an old rate, with a warning, than to fail.</p></div>
+  <div class="card"><h4>A broken allowed_users.json doesn't lock out users</h4><p>The previous list is kept.</p></div>
+</div>
+
+<!-- ───────────────────────── Extend ───────────────────────── -->
+<h2 id="extend">How to extend</h2>
+<dl class="extend">
+  <dt>New way to write a currency in free text</dt>
+  <dd>Add an entry to <code>ALIASES</code> in <code>currencies.py</code> (lowercase key), plus a test in <code>tests/test_parser.py</code>. Only unambiguous names (e.g. not "דינר"; those are handled by search with buttons). An alias must not be exactly a magnitude suffix (<code>k</code>, <code>m</code>, <code>b</code>, <code>bn</code>, <code>אלף</code>, <code>מיליון</code>...), because the parser reads those as multipliers first.</dd>
+  <dt>Currency in the list / search by country</dt>
+  <dd>Add <code>_c(...)</code> to <code>CATALOG</code> in <code>catalog.py</code> (code, Hebrew name, English name, flag, region, search keywords). For a quick-pick button, also add it to <code>POPULAR</code>.</dd>
+  <dt>Currency display symbol</dt>
+  <dd><code>DISPLAY_SYMBOLS</code> in <code>currencies.py</code>.</dd>
+  <dt>Changing text wording</dt>
+  <dd><code>messages.py</code> only.</dd>
+  <dt>Improving recognition from images</dt>
+  <dd>Change <code>PROMPT</code> in <code>vision.py</code>, or the model in <code>.env</code>. Use <code>LOG_LEVEL=DEBUG</code> to see the model's raw output.</dd>
+  <dt>Improving free-text understanding</dt>
+  <dd>Add an example to the <code>Examples</code> section of <code>SYSTEM_PROMPT</code> in <code>nlu.py</code>. Check with real phrases (see <code>tests/test_nlu.py</code> for the format), not just the ones in the examples.</dd>
+  <dt>New action for the language model</dt>
+  <dd>Add it to <code>ACTIONS</code> and to the prompt in <code>nlu.py</code>, handle it in <code>_understand</code> in <code>handlers.py</code>, and add a test in <code>tests/test_handlers.py</code>.</dd>
+  <dt>New command</dt>
+  <dd>A function in <code>handlers.py</code> + registration in <code>register()</code> + an entry in <code>COMMANDS</code> in <code>__main__.py</code> (so it shows in Telegram's menu) + a line in the help text.</dd>
+  <dt>Different rates provider</dt>
+  <dd>Replace <code>_fetch</code> in <code>rates.py</code> (keep <code>self._rates</code> relative to one base currency).</dd>
+</dl>
+
+<!-- ───────────────────────── Tests ───────────────────────── -->
+<h2 id="tests">Tests</h2>
+<p><code>tests/</code> covers the logic without network access: parsing, conversion and cache (<code>httpx.MockTransport</code>), the allow-list and preferences (temp directory), the vision and language modules (a mocked Ollama), and the handlers' logic, including the clarifying-question and confirmation flow (<code>test_handlers.py</code>, with stub Telegram objects).</p>
+
+</main>
+</body>
+</html>

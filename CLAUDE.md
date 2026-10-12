@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Telegram currency-conversion bot (Python, python-telegram-bot, local Ollama vision). Architecture: `docs/ARCHITECTURE.md`.
+Telegram currency-conversion bot (Python, python-telegram-bot, local Ollama vision). Architecture: `docs/ARCHITECTURE.md` (diagram version: `docs/ARCHITECTURE.html`).
 
 ## Commands
 - `make setup`: venv + deps + `.env` / `data/allowed_users.json` if missing
@@ -15,5 +15,5 @@ Telegram currency-conversion bot (Python, python-telegram-bot, local Ollama visi
 - The language model only interprets (`bot/nlu.py`); handlers validate every currency, and settings changes need a confirmation button.
 - Bot never writes `data/allowed_users.json` (admin edits it by hand); per-user state goes in `user_prefs.json`.
 - Module + public function docstrings, type hints, ruff-clean.
-- Every change: add/adjust tests, update `CHANGELOG.md` (and README/ARCHITECTURE if behavior or setup changes).
+- Every change: add/adjust tests, update `CHANGELOG.md` (and README/ARCHITECTURE if behavior or setup changes; `docs/ARCHITECTURE.md` and `docs/ARCHITECTURE.html` are kept in sync).
 - Pin new dependencies in `requirements.txt` / `requirements-dev.txt`.

@@ -5,6 +5,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/), and versions
 ## [Unreleased]
 ### Added
 - Magnitude suffixes in amounts: `k` / `אלף` (thousand), `m` / `מיליון` (million), `b` / `bn` / `מיליארד` (billion), e.g. `10k`, `$1.5m`, `2M ₪`, `5 אלף דולר`. Parsed directly by the regular parser (case-insensitive). Currency aliases such as `kr` and `kč` are not affected. The language-model prompt explains the suffixes too, as a fallback.
+- `docs/ARCHITECTURE.html`: the architecture doc as a standalone page with diagrams (message flow, free-text handling, source-currency precedence, data-file ownership). Supports light and dark mode.
 
 ## [0.4.0] - 2026-10-09
 ### Added
