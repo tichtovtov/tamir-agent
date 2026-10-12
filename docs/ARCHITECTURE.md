@@ -62,8 +62,8 @@ A button press arrives as a callback query with data `set:<code>` / `from:<code>
 | `__main__.py` | Entry point: loads config, startup checks (data dir, Ollama), builds the services, starts polling |
 | `config.py` | Reads `.env` into a `Config` object. **The only place** that reads environment variables or holds fixed constants |
 | `handlers.py` | Telegram handlers. Thin layer: calls the other modules and returns texts from `messages.py` |
-| `auth.py` | `AllowList`: reads `allowed_users.json`, reloads on mtime change |
-| `storage.py` | `UserPrefs`: each user's target currency in `user_prefs.json`, atomic writes |
+| `auth.py` | `AllowList`: reads `allowed_users.json` (reloads on mtime change) merged with `BotUsers` |
+| `storage.py` | Files the bot writes, atomically: `UserPrefs` (each user's currencies in `user_prefs.json`) and `BotUsers` (users added with `/add_user`, in `bot_users.json`) |
 | `parser.py` | Parses text into `ParsedPrice(amount, currency)`, including magnitude suffixes (`10k`, `1.5m`, `5 אלף`) |
 | `currencies.py` | Map of symbols/names → ISO code (for parsing free text), and display formatting |
 | `catalog.py` | Catalog of ~50 common currencies: Hebrew/English name, flag, region, countries. Used for `/currencies`, search, and buttons |
@@ -79,11 +79,14 @@ Services are created once in `__main__.py` and stored in `application.bot_data["
 | File | Who writes it | Format |
 |---|---|---|
 | `allowed_users.json` | Admin, by hand | `{"<telegram_id>": {"name": "<name>"}}` |
+| `bot_users.json` | The bot (admin's `/add_user`, `/remove_user`) | `{"<telegram_id>": {"name": "<name>", "added_by": <admin id>, "added_at": "<ISO time>"}}` |
 | `user_prefs.json` | The bot | `{"<telegram_id>": {"name": "<Telegram name>", "currency": "USD", "source": "EUR"}}` |
 
 `currency` = target currency (default `DEFAULT_CURRENCY`). `source` = default source currency from `/from`, optional; `/from off` removes the field.
 
-The split is intentional: the bot never writes to the file the admin edits, so there's no risk of overwriting manual edits.
+The split is intentional: the bot never writes to the file the admin edits, so there's no risk of overwriting manual edits. The allow-list is the union of `allowed_users.json` and `bot_users.json`; if a user is in both, the name from `allowed_users.json` wins.
+
+**Admins** (`ADMIN_IDS` in `.env`) always pass the gate and can run `/add_user`, `/remove_user` and `/users`. For anyone else these commands fall through to the help message, like an unknown command. The admin commands are added to the Telegram command menu only in admins' private chats (`BotCommandScopeChat`).
 
 ## Design decisions
 - **Polling, not a webhook**: no public address or SSL certificate needed. Works behind a home NAT.
@@ -101,6 +104,7 @@ The split is intentional: the bot never writes to the file the admin edits, so t
 - **Improving recognition from images**: change `PROMPT` in `vision.py`, or the model in `.env`. Use `LOG_LEVEL=DEBUG` to see the model's raw output.
 - **Improving free-text understanding**: add an example to the `Examples` section of `SYSTEM_PROMPT` in `nlu.py`. Check with real phrases (see `tests/test_nlu.py` for the format), not just the ones in the examples.
 - **New action for the language model**: add it to `ACTIONS` and to the prompt in `nlu.py`, handle it in `_understand` in `handlers.py`, and add a test in `tests/test_handlers.py`.
+- **New admin command**: like a new command, but start the handler with the `_is_admin` check (fall back to `help_cmd`) and add it to `ADMIN_COMMANDS` instead of `COMMANDS`, plus a line in `messages.ADMIN_HELP`.
 - **New command**: a function in `handlers.py` + registration in `register()` + an entry in `COMMANDS` in `__main__.py` (so it shows in Telegram's menu) + a line in the help text.
 - **Different rates provider**: replace `_fetch` in `rates.py` (keep `self._rates` relative to one base currency).
 

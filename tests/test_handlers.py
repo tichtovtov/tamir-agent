@@ -5,13 +5,17 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
+from telegram.error import Forbidden
 
 from bot import handlers
+from bot.auth import AllowList
 from bot.nlu import Interpretation
 from bot.ollama import OllamaUnavailableError
 from bot.parser import ParsedPrice
 from bot.rates import RatesClient
-from bot.storage import UserPrefs
+from bot.storage import BotUsers, UserPrefs
+
+ADMIN_ID = 1
 
 RATES_RESPONSE = {
     "result": "success",
@@ -28,9 +32,12 @@ def services(tmp_path):
             transport=httpx.MockTransport(lambda req: httpx.Response(200, json=RATES_RESPONSE))
         ),
     )
+    (tmp_path / "allowed_users.json").write_text('{"7": {"name": "תמיר"}}', encoding="utf-8")
+    bot_users = BotUsers(tmp_path / "bot_users.json")
     return handlers.Services(
-        config=None,
-        allow_list=SimpleNamespace(name_of=lambda uid: "תמיר"),
+        config=SimpleNamespace(admin_ids=frozenset({ADMIN_ID}), admin_name="אלעד"),
+        allow_list=AllowList(tmp_path / "allowed_users.json", bot_users),
+        bot_users=bot_users,
         prefs=UserPrefs(tmp_path / "user_prefs.json", "ILS"),
         rates=rates,
         ollama=None,
@@ -39,7 +46,7 @@ def services(tmp_path):
     )
 
 
-def _update(text=None, caption=None, photo=False):
+def _update(text=None, caption=None, photo=False, user_id=7):
     message = SimpleNamespace(
         text=text,
         caption=caption,
@@ -48,7 +55,7 @@ def _update(text=None, caption=None, photo=False):
         chat=SimpleNamespace(send_action=AsyncMock()),
     )
     return SimpleNamespace(
-        effective_user=SimpleNamespace(id=7, full_name="Tamir"), effective_message=message
+        effective_user=SimpleNamespace(id=user_id, full_name="Tamir"), effective_message=message
     )
 
 
@@ -58,7 +65,7 @@ def _context(services, args=None, user_data=None):
     return SimpleNamespace(
         application=SimpleNamespace(bot_data={"services": services}),
         args=args,
-        bot=SimpleNamespace(get_file=AsyncMock(return_value=file)),
+        bot=SimpleNamespace(get_file=AsyncMock(return_value=file), send_message=AsyncMock()),
         user_data={} if user_data is None else user_data,
     )
 
@@ -298,3 +305,118 @@ async def test_set_target_accepts_currency_in_target_field(services):
     u = _update("תעביר לי את כל התוצאות לאירו")
     await handlers.text_msg(u, _context(services))
     assert _buttons(u) == ["set:EUR", "cancel"]
+
+
+# --- Admin commands -------------------------------------------------------------
+
+
+async def test_add_user_allows_and_notifies(services):
+    ctx = _context(services, ["555", "דנה", "כהן"])
+    u = _update(user_id=ADMIN_ID)
+    await handlers.add_user_cmd(u, ctx)
+    assert services.allow_list.is_allowed(555)
+    assert services.allow_list.name_of(555) == "דנה כהן"
+    assert ctx.bot.send_message.call_args.args[0] == 555
+    assert "דנה כהן" in _reply_text(u)
+    assert "שלחתי" in _reply_text(u)
+
+
+async def test_add_user_persists_in_bot_file_only(services, tmp_path):
+    before = (tmp_path / "allowed_users.json").read_text(encoding="utf-8")
+    await handlers.add_user_cmd(_update(user_id=ADMIN_ID), _context(services, ["555", "דנה"]))
+    assert (tmp_path / "allowed_users.json").read_text(encoding="utf-8") == before
+    reloaded = AllowList(tmp_path / "allowed_users.json", BotUsers(tmp_path / "bot_users.json"))
+    assert reloaded.is_allowed(555)
+
+
+async def test_add_user_notify_failure_still_adds(services):
+    ctx = _context(services, ["555"])
+    ctx.bot.send_message.side_effect = Forbidden("bot can't initiate conversation")
+    u = _update(user_id=ADMIN_ID)
+    await handlers.add_user_cmd(u, ctx)
+    assert services.allow_list.is_allowed(555)
+    assert "לא הצלחתי" in _reply_text(u)
+
+
+@pytest.mark.parametrize("args", [None, ["abc"], ["-5"], ["0"]])
+async def test_add_user_invalid_id_shows_usage(services, args):
+    u = _update(user_id=ADMIN_ID)
+    await handlers.add_user_cmd(u, _context(services, args))
+    assert "/add_user" in _reply_text(u)
+    assert services.bot_users.all() == {}
+
+
+async def test_add_user_already_in_manual_file(services):
+    u = _update(user_id=ADMIN_ID)
+    await handlers.add_user_cmd(u, _context(services, ["7", "x"]))
+    assert services.bot_users.all() == {}
+    assert "allowed_users.json" in _reply_text(u)
+
+
+async def test_admin_commands_ignored_for_non_admin(services):
+    ctx = _context(services, ["555", "דנה"])
+    u = _update()  # user 7: allowed, not an admin
+    await handlers.add_user_cmd(u, ctx)
+    assert not services.allow_list.is_allowed(555)
+    ctx.bot.send_message.assert_not_called()
+    assert "/help" in _reply_text(u)  # same as an unknown command
+    assert "/add_user" not in _reply_text(u)
+
+    services.bot_users.add(555, "דנה", added_by=ADMIN_ID)
+    await handlers.remove_user_cmd(_update(), _context(services, ["555"]))
+    assert services.allow_list.is_allowed(555)
+
+    u = _update()
+    await handlers.users_cmd(u, _context(services))
+    assert "555" not in _reply_text(u)
+
+
+async def test_remove_user(services):
+    services.bot_users.add(555, "דנה", added_by=ADMIN_ID)
+    u = _update(user_id=ADMIN_ID)
+    await handlers.remove_user_cmd(u, _context(services, ["555"]))
+    assert not services.allow_list.is_allowed(555)
+    assert "דנה" in _reply_text(u)
+
+
+async def test_remove_user_from_manual_file_refused(services):
+    u = _update(user_id=ADMIN_ID)
+    await handlers.remove_user_cmd(u, _context(services, ["7"]))
+    assert services.allow_list.is_allowed(7)
+    assert "ידנית" in _reply_text(u)
+
+
+async def test_remove_unknown_user(services):
+    u = _update(user_id=ADMIN_ID)
+    await handlers.remove_user_cmd(u, _context(services, ["999"]))
+    assert "999" in _reply_text(u)
+
+
+async def test_users_lists_both_sources_escaped(services):
+    services.bot_users.add(555, "<b>דנה</b>", added_by=ADMIN_ID)
+    u = _update(user_id=ADMIN_ID)
+    await handlers.users_cmd(u, _context(services))
+    text = _reply_text(u)
+    assert "תמיר" in text and "<code>7</code>" in text
+    assert "&lt;b&gt;דנה&lt;/b&gt;" in text and "<code>555</code>" in text
+
+
+async def test_gate_admin_always_passes_and_others_blocked(services):
+    await handlers.gate(_update("hi", user_id=ADMIN_ID), _context(services))  # no exception
+
+    u = _update("hi", user_id=999)
+    with pytest.raises(handlers.ApplicationHandlerStop):
+        await handlers.gate(u, _context(services))
+    assert "999" in _reply_text(u)
+
+    services.bot_users.add(999, "", added_by=ADMIN_ID)
+    await handlers.gate(_update("hi", user_id=999), _context(services))
+
+
+async def test_help_shows_admin_section_only_to_admins(services):
+    u = _update(user_id=ADMIN_ID)
+    await handlers.help_cmd(u, _context(services))
+    assert "/add_user" in _reply_text(u)
+    u = _update()
+    await handlers.help_cmd(u, _context(services))
+    assert "/add_user" not in _reply_text(u)

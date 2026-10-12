@@ -10,7 +10,8 @@ import asyncio
 import logging
 import sys
 
-from telegram import BotCommand
+from telegram import BotCommand, BotCommandScopeChat
+from telegram.error import TelegramError
 from telegram.ext import Application
 
 from bot import __version__, handlers
@@ -19,7 +20,7 @@ from bot.config import Config, ConfigError, load_config
 from bot.nlu import OllamaNLU
 from bot.ollama import OllamaClient
 from bot.rates import RatesClient
-from bot.storage import UserPrefs
+from bot.storage import BotUsers, UserPrefs
 from bot.vision import OllamaVision
 
 log = logging.getLogger("bot")
@@ -30,6 +31,12 @@ COMMANDS = [
     BotCommand("currencies", "רשימת מטבעות והקודים שלהם"),
     BotCommand("currency", "הצגת ההגדרות הנוכחיות"),
     BotCommand("help", "איך משתמשים בבוט"),
+]
+# Shown in the menu only in admins' private chats
+ADMIN_COMMANDS = [
+    BotCommand("add_user", "הוספת משתמש מורשה: /add_user <מזהה> <שם>"),
+    BotCommand("remove_user", "הסרת משתמש: /remove_user <מזהה>"),
+    BotCommand("users", "רשימת המשתמשים המורשים"),
 ]
 
 
@@ -42,7 +49,7 @@ def _check_data_dir(config: Config) -> None:
         probe.unlink()
     except OSError as e:
         raise ConfigError(f"Data directory {config.data_dir} is not writable: {e}") from e
-    if not config.allowed_users_path.exists():
+    if not config.allowed_users_path.exists() and not config.admin_ids:
         log.warning(
             "%s not found — nobody can use the bot yet. "
             "Create it (see data/allowed_users.example.json).",
@@ -62,6 +69,16 @@ async def _post_init(app: Application) -> None:
     else:
         log.info("Ollama OK (vision: %s, text: %s)", cfg.ollama_model, cfg.ollama_text_model)
     await app.bot.set_my_commands(COMMANDS)
+    for admin_id in cfg.admin_ids:
+        try:
+            await app.bot.set_my_commands(
+                COMMANDS + ADMIN_COMMANDS, scope=BotCommandScopeChat(admin_id)
+            )
+        except TelegramError as e:
+            # Happens until the admin has sent the bot a first message
+            log.warning("Could not set the admin command menu for %s: %s", admin_id, e)
+    if not cfg.admin_ids:
+        log.info("ADMIN_IDS is empty: /add_user, /remove_user and /users are disabled")
 
 
 async def _post_shutdown(app: Application) -> None:
@@ -98,9 +115,11 @@ def main() -> int:
         .build()
     )
     ollama = OllamaClient(config.ollama_url, config.ollama_timeout)
+    bot_users = BotUsers(config.bot_users_path)
     app.bot_data["services"] = handlers.Services(
         config=config,
-        allow_list=AllowList(config.allowed_users_path),
+        allow_list=AllowList(config.allowed_users_path, bot_users),
+        bot_users=bot_users,
         prefs=UserPrefs(config.user_prefs_path, config.default_currency),
         rates=RatesClient(config.rates_ttl),
         ollama=ollama,

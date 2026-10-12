@@ -2,8 +2,10 @@
 
 Flow for every update:
 1. `gate` (group -1) stops unauthorized users with a message containing their ID.
-2. Commands (/start, /help, /set, /from, /currency, /currencies), button presses,
-   text, photos, or the fallback handler.
+   Admins (ADMIN_IDS) always pass.
+2. Commands (/start, /help, /set, /from, /currency, /currencies), admin commands
+   (/add_user, /remove_user, /users), button presses, text, photos, or the
+   fallback handler.
 Text that parser.py understands is converted directly; anything else goes to the
 language model (nlu.py), which may lead to a conversion, a proposed settings change
 (confirmed with a button), or a clarifying question.
@@ -20,6 +22,7 @@ from dataclasses import dataclass
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, User
 from telegram.constants import ChatAction, ParseMode
+from telegram.error import TelegramError
 from telegram.ext import (
     Application,
     ApplicationHandlerStop,
@@ -38,7 +41,7 @@ from bot.nlu import Interpretation, OllamaNLU
 from bot.ollama import OllamaClient, OllamaUnavailableError
 from bot.parser import ParsedPrice
 from bot.rates import RatesClient, RatesUnavailableError, UnknownCurrencyError
-from bot.storage import UserPrefs
+from bot.storage import BotUsers, UserPrefs
 from bot.vision import OllamaVision
 
 log = logging.getLogger(__name__)
@@ -59,6 +62,7 @@ class Services:
 
     config: Config
     allow_list: AllowList
+    bot_users: BotUsers
     prefs: UserPrefs
     rates: RatesClient
     ollama: OllamaClient
@@ -82,7 +86,7 @@ async def gate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if user is None or update.effective_message is None:
         raise ApplicationHandlerStop
     s = _services(context)
-    if s.allow_list.is_allowed(user.id):
+    if _is_admin(s, user.id) or s.allow_list.is_allowed(user.id):
         return
     log.info("Unauthorized user %s (%s)", user.id, user.full_name)
     await _reply(update, messages.unauthorized(user.id, s.config.admin_name))
@@ -96,7 +100,10 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _reply(
         update,
         messages.help_text(
-            s.allow_list.name_of(uid), s.prefs.get_currency(uid), s.prefs.get_source(uid)
+            s.allow_list.name_of(uid),
+            s.prefs.get_currency(uid),
+            s.prefs.get_source(uid),
+            is_admin=_is_admin(s, uid),
         ),
     )
 
@@ -453,6 +460,81 @@ async def photo_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _convert_and_reply(update, s, ParsedPrice(price.amount, currency))
 
 
+# --- Admin commands (user management) -------------------------------------------
+# Users added here go to bot_users.json; allowed_users.json is never written.
+# For anyone who is not an admin these commands behave like an unknown command.
+
+
+def _is_admin(s: Services, user_id: int) -> bool:
+    return user_id in s.config.admin_ids
+
+
+def _parse_user_id(raw: str) -> int | None:
+    """A Telegram user ID from a command argument, or None if it isn't one."""
+    return int(raw) if raw.isdigit() and int(raw) > 0 else None
+
+
+async def add_user_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/add_user <id> <name>: allow a user and notify them (admins only)."""
+    s = _services(context)
+    admin = update.effective_user
+    if not _is_admin(s, admin.id):
+        await help_cmd(update, context)
+        return
+    user_id = _parse_user_id(context.args[0]) if context.args else None
+    if user_id is None:
+        await _reply(update, messages.ADD_USER_USAGE)
+        return
+    if user_id in s.allow_list.manual_users():
+        await _reply(update, messages.user_already_manual(user_id))
+        return
+    name = " ".join(context.args[1:]).strip()
+    s.bot_users.add(user_id, name, added_by=admin.id)
+    log.info("Admin %s added user %s (%s)", admin.id, user_id, name)
+    try:
+        await context.bot.send_message(
+            user_id, messages.welcome_added(name), parse_mode=ParseMode.HTML
+        )
+        notified = True
+    except TelegramError as e:
+        log.info("Could not notify new user %s: %s", user_id, e)
+        notified = False
+    await _reply(update, messages.user_added(user_id, name, notified))
+
+
+async def remove_user_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/remove_user <id>: remove a user added from Telegram (admins only)."""
+    s = _services(context)
+    admin = update.effective_user
+    if not _is_admin(s, admin.id):
+        await help_cmd(update, context)
+        return
+    user_id = _parse_user_id(context.args[0]) if context.args else None
+    if user_id is None:
+        await _reply(update, messages.REMOVE_USER_USAGE)
+        return
+    name = s.bot_users.all().get(user_id)
+    if s.bot_users.remove(user_id):
+        log.info("Admin %s removed user %s", admin.id, user_id)
+        await _reply(update, messages.user_removed(user_id, name))
+    elif user_id in s.allow_list.manual_users():
+        await _reply(update, messages.user_remove_manual(user_id))
+    else:
+        await _reply(update, messages.user_not_found(user_id))
+
+
+async def users_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/users: list authorized users (admins only)."""
+    s = _services(context)
+    if not _is_admin(s, update.effective_user.id):
+        await help_cmd(update, context)
+        return
+    await _reply(
+        update,
+        messages.users_list(s.allow_list.manual_users(), s.bot_users.all(), s.config.admin_ids),
+    )
+
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Log unexpected errors and tell the user something went wrong."""
     log.exception("Unhandled error", exc_info=context.error)
@@ -468,6 +550,9 @@ def register(app: Application) -> None:
     app.add_handler(CommandHandler("from", from_cmd))
     app.add_handler(CommandHandler("currency", currency_cmd))
     app.add_handler(CommandHandler("currencies", currencies_cmd))
+    app.add_handler(CommandHandler("add_user", add_user_cmd))
+    app.add_handler(CommandHandler("remove_user", remove_user_cmd))
+    app.add_handler(CommandHandler("users", users_cmd))
     app.add_handler(CallbackQueryHandler(currency_button, pattern=r"^((set|from):\w+|cancel)$"))
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, photo_msg))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_msg))

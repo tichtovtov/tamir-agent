@@ -13,7 +13,8 @@ Telegram currency-conversion bot (Python, python-telegram-bot, local Ollama visi
 - All user-facing text lives in `bot/messages.py` (Hebrew, HTML parse mode; `html.escape` anything user-provided).
 - Image recognition and free-text understanding use local Ollama only (`bot/ollama.py`). Don't add cloud LLM/vision APIs.
 - The language model only interprets (`bot/nlu.py`); handlers validate every currency, and settings changes need a confirmation button.
-- Bot never writes `data/allowed_users.json` (admin edits it by hand); per-user state goes in `user_prefs.json`.
+- Bot never writes `data/allowed_users.json` (admin edits it by hand); users added with `/add_user` go in `bot_users.json`, per-user state in `user_prefs.json`.
+- Admin-only commands check `_is_admin` (`ADMIN_IDS`) and behave like an unknown command for everyone else.
 - Module + public function docstrings, type hints, ruff-clean.
 - Every change: add/adjust tests, update `CHANGELOG.md` (and README/ARCHITECTURE if behavior or setup changes; `docs/ARCHITECTURE.md` and `docs/ARCHITECTURE.html` are kept in sync).
 - Pin new dependencies in `requirements.txt` / `requirements-dev.txt`.

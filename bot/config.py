@@ -17,6 +17,7 @@ RATES_API_URL = "https://open.er-api.com/v6/latest/USD"
 RATES_BASE_CURRENCY = "USD"
 ALLOWED_USERS_FILENAME = "allowed_users.json"
 USER_PREFS_FILENAME = "user_prefs.json"
+BOT_USERS_FILENAME = "bot_users.json"
 # A pending clarification is forgotten after this many seconds of silence
 CONVERSATION_TTL_SECONDS = 600
 # How many recent messages of a clarification exchange are sent to the language model
@@ -29,6 +30,7 @@ class Config:
 
     telegram_token: str
     admin_name: str
+    admin_ids: frozenset[int]
     default_currency: str
     ollama_url: str
     ollama_model: str
@@ -46,16 +48,30 @@ class Config:
     def user_prefs_path(self) -> Path:
         return self.data_dir / USER_PREFS_FILENAME
 
+    @property
+    def bot_users_path(self) -> Path:
+        return self.data_dir / BOT_USERS_FILENAME
+
 
 class ConfigError(Exception):
     """Raised when required configuration is missing or invalid."""
+
+
+def parse_ids(raw: str) -> frozenset[int]:
+    """Parse a comma/space separated list of Telegram IDs, e.g. "123, 456".
+
+    Raises:
+        ValueError: if an item is not an integer.
+    """
+    return frozenset(int(x) for x in raw.replace(",", " ").split())
 
 
 def load_config() -> Config:
     """Load configuration from the environment (and .env if present).
 
     Raises:
-        ConfigError: if TELEGRAM_BOT_TOKEN is missing or a numeric value is invalid.
+        ConfigError: if TELEGRAM_BOT_TOKEN is missing or a numeric value (including
+            ADMIN_IDS) is invalid.
     """
     load_dotenv()
 
@@ -67,6 +83,7 @@ def load_config() -> Config:
         )
 
     try:
+        admin_ids = parse_ids(os.getenv("ADMIN_IDS", ""))
         ollama_timeout = float(os.getenv("OLLAMA_TIMEOUT", "90"))
         rates_ttl = int(os.getenv("RATES_TTL", "3600"))
     except ValueError as e:
@@ -76,6 +93,7 @@ def load_config() -> Config:
     return Config(
         telegram_token=token,
         admin_name=os.getenv("ADMIN_NAME", "אלעד"),
+        admin_ids=admin_ids,
         default_currency=os.getenv("DEFAULT_CURRENCY", "ILS").upper(),
         ollama_url=os.getenv("OLLAMA_URL", "http://localhost:11434").rstrip("/"),
         ollama_model=vision_model,

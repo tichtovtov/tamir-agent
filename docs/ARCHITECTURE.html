@@ -176,7 +176,7 @@
     <!-- gate -->
     <rect class="box" x="270" y="86" width="220" height="44" rx="6"/>
     <text x="380" y="106" text-anchor="middle" class="b">gate</text>
-    <text x="380" y="122" text-anchor="middle" class="mono sm">auth.AllowList</text>
+    <text x="380" y="122" text-anchor="middle" class="sm"><tspan class="mono">auth.AllowList</tspan> · admins pass</text>
     <line class="warn-ln" x1="490" y1="108" x2="566" y2="108" marker-end="url(#f1w)"/>
     <text x="528" y="100" text-anchor="middle" class="sm warn-t">not in list</text>
     <rect class="box" x="568" y="86" width="176" height="44" rx="6"/>
@@ -440,8 +440,8 @@
     <tr><td><code>__main__.py</code></td><td>Entry point: loads config, startup checks (data dir, Ollama), builds the services, starts polling</td></tr>
     <tr><td><code>config.py</code></td><td>Reads <code>.env</code> into a <code>Config</code> object. <strong>The only place</strong> that reads environment variables or holds fixed constants</td></tr>
     <tr><td><code>handlers.py</code></td><td>Telegram handlers. Thin layer: calls the other modules and returns texts from <code>messages.py</code></td></tr>
-    <tr><td><code>auth.py</code></td><td><code>AllowList</code>: reads <code>allowed_users.json</code>, reloads on mtime change</td></tr>
-    <tr><td><code>storage.py</code></td><td><code>UserPrefs</code>: each user's target currency in <code>user_prefs.json</code>, atomic writes</td></tr>
+    <tr><td><code>auth.py</code></td><td><code>AllowList</code>: reads <code>allowed_users.json</code> (reloads on mtime change) merged with <code>BotUsers</code></td></tr>
+    <tr><td><code>storage.py</code></td><td>Files the bot writes, atomically: <code>UserPrefs</code> (each user's currencies in <code>user_prefs.json</code>) and <code>BotUsers</code> (users added with <code>/add_user</code>, in <code>bot_users.json</code>)</td></tr>
     <tr><td><code>parser.py</code></td><td>Parses text into <code>ParsedPrice(amount, currency)</code>, including magnitude suffixes (<code>10k</code>, <code>1.5m</code>, <code>5 אלף</code>)</td></tr>
     <tr><td><code>currencies.py</code></td><td>Map of symbols/names → ISO code (for parsing free text), and display formatting</td></tr>
     <tr><td><code>catalog.py</code></td><td>Catalog of ~50 common currencies: Hebrew/English name, flag, region, countries. Used for <code>/currencies</code>, search, and buttons</td></tr>
@@ -460,7 +460,7 @@
 
 <figure>
   <div class="scroll">
-  <svg viewBox="0 0 760 200" role="img" aria-label="The admin edits allowed_users.json by hand and the bot only reads it; the bot reads and writes user_prefs.json, which the admin doesn't need to touch.">
+  <svg viewBox="0 0 760 280" role="img" aria-label="The admin edits allowed_users.json by hand and the bot only reads it. Users the admin adds with /add_user are written by the bot to bot_users.json. The bot also reads and writes user_prefs.json.">
     <defs>
       <marker id="f4a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker>
       <marker id="f4w" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="warn-head"/></marker>
@@ -472,29 +472,41 @@
     <text x="360" y="52" text-anchor="middle" class="mono">allowed_users.json</text>
     <text x="360" y="70" text-anchor="middle" class="sm">allowed users · reread on change</text>
 
-    <rect class="box" x="250" y="126" width="220" height="52" rx="6"/>
-    <text x="360" y="148" text-anchor="middle" class="mono">user_prefs.json</text>
-    <text x="360" y="166" text-anchor="middle" class="sm">target + /from source per user</text>
+    <rect class="box" x="250" y="105" width="220" height="52" rx="6"/>
+    <text x="360" y="127" text-anchor="middle" class="mono">bot_users.json</text>
+    <text x="360" y="145" text-anchor="middle" class="sm">users added with /add_user</text>
 
-    <rect class="acc" x="600" y="30" width="140" height="148" rx="8"/>
-    <text x="670" y="100" text-anchor="middle" class="b">Bot</text>
-    <text x="670" y="116" text-anchor="middle" class="sm">auth · storage</text>
+    <rect class="box" x="250" y="180" width="220" height="52" rx="6"/>
+    <text x="360" y="202" text-anchor="middle" class="mono">user_prefs.json</text>
+    <text x="360" y="220" text-anchor="middle" class="sm">target + /from source per user</text>
+
+    <rect class="acc" x="600" y="30" width="140" height="202" rx="8"/>
+    <text x="670" y="127" text-anchor="middle" class="b">Bot</text>
+    <text x="670" y="143" text-anchor="middle" class="sm">auth · storage</text>
 
     <line class="ln" x1="140" y1="56" x2="248" y2="56" marker-end="url(#f4a)"/>
     <text x="194" y="48" text-anchor="middle" class="sm">edits by hand</text>
+
+    <polyline class="ln dash" points="80,78 80,256 670,256 670,234" marker-end="url(#f4a)"/>
+    <text x="375" y="250" text-anchor="middle" class="sm">/add_user · /remove_user (Telegram message)</text>
 
     <line class="ln" x1="470" y1="46" x2="598" y2="46" marker-end="url(#f4a)"/>
     <text x="534" y="39" text-anchor="middle" class="sm">reads</text>
     <line class="warn-ln" x1="598" y1="68" x2="472" y2="68" marker-end="url(#f4w)"/>
     <text x="534" y="84" text-anchor="middle" class="sm warn-t">✕ never writes</text>
 
-    <line class="ln" x1="598" y1="142" x2="472" y2="142" marker-end="url(#f4a)"/>
-    <text x="534" y="135" text-anchor="middle" class="sm">writes (atomic)</text>
-    <line class="ln" x1="470" y1="164" x2="598" y2="164" marker-end="url(#f4a)"/>
-    <text x="534" y="180" text-anchor="middle" class="sm">reads</text>
+    <line class="ln" x1="598" y1="121" x2="472" y2="121" marker-end="url(#f4a)"/>
+    <text x="534" y="114" text-anchor="middle" class="sm">writes (atomic)</text>
+    <line class="ln" x1="470" y1="141" x2="598" y2="141" marker-end="url(#f4a)"/>
+    <text x="534" y="156" text-anchor="middle" class="sm">reads</text>
+
+    <line class="ln" x1="598" y1="196" x2="472" y2="196" marker-end="url(#f4a)"/>
+    <text x="534" y="189" text-anchor="middle" class="sm">writes (atomic)</text>
+    <line class="ln" x1="470" y1="216" x2="598" y2="216" marker-end="url(#f4a)"/>
+    <text x="534" y="231" text-anchor="middle" class="sm">reads</text>
   </svg>
   </div>
-  <figcaption>Each file has exactly one writer. The bot never writes the file the admin edits, so a manual edit can't be overwritten.</figcaption>
+  <figcaption>Each file has exactly one writer. The admin edits <code>allowed_users.json</code> by hand. Users the admin adds from Telegram go to <code>bot_users.json</code>, which only the bot writes, so a manual edit can't be overwritten.</figcaption>
 </figure>
 
 <div class="table-wrap">
@@ -502,11 +514,14 @@
   <thead><tr><th>File</th><th>Who writes it</th><th>Format</th></tr></thead>
   <tbody>
     <tr><td><code>allowed_users.json</code></td><td>Admin, by hand</td><td><code>{"&lt;telegram_id&gt;": {"name": "&lt;name&gt;"}}</code></td></tr>
+    <tr><td><code>bot_users.json</code></td><td>The bot (admin's <code>/add_user</code>, <code>/remove_user</code>)</td><td><code>{"&lt;telegram_id&gt;": {"name": "&lt;name&gt;", "added_by": &lt;admin id&gt;, "added_at": "&lt;ISO time&gt;"}}</code></td></tr>
     <tr><td><code>user_prefs.json</code></td><td>The bot</td><td><code>{"&lt;telegram_id&gt;": {"name": "&lt;Telegram name&gt;", "currency": "USD", "source": "EUR"}}</code></td></tr>
   </tbody>
 </table>
 </div>
 <p class="note"><code>currency</code> = target currency (default <code>DEFAULT_CURRENCY</code>). <code>source</code> = default source currency from <code>/from</code>, optional; <code>/from off</code> removes the field.</p>
+<p>The allow-list is the union of <code>allowed_users.json</code> and <code>bot_users.json</code>; if a user is in both, the name from <code>allowed_users.json</code> wins.</p>
+<p><strong>Admins</strong> (<code>ADMIN_IDS</code> in <code>.env</code>) always pass the gate and can run <code>/add_user</code>, <code>/remove_user</code> and <code>/users</code>. For anyone else these commands fall through to the help message, like an unknown command. The admin commands are added to the Telegram command menu only in admins' private chats (<code>BotCommandScopeChat</code>).</p>
 
 <!-- ───────────────────────── Decisions ───────────────────────── -->
 <h2 id="decisions">Design decisions</h2>
@@ -536,6 +551,8 @@
   <dd>Add an example to the <code>Examples</code> section of <code>SYSTEM_PROMPT</code> in <code>nlu.py</code>. Check with real phrases (see <code>tests/test_nlu.py</code> for the format), not just the ones in the examples.</dd>
   <dt>New action for the language model</dt>
   <dd>Add it to <code>ACTIONS</code> and to the prompt in <code>nlu.py</code>, handle it in <code>_understand</code> in <code>handlers.py</code>, and add a test in <code>tests/test_handlers.py</code>.</dd>
+  <dt>New admin command</dt>
+  <dd>Like a new command, but start the handler with the <code>_is_admin</code> check (fall back to <code>help_cmd</code>) and add it to <code>ADMIN_COMMANDS</code> instead of <code>COMMANDS</code>, plus a line in <code>messages.ADMIN_HELP</code>.</dd>
   <dt>New command</dt>
   <dd>A function in <code>handlers.py</code> + registration in <code>register()</code> + an entry in <code>COMMANDS</code> in <code>__main__.py</code> (so it shows in Telegram's menu) + a line in the help text.</dd>
   <dt>Different rates provider</dt>

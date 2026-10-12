@@ -20,9 +20,9 @@ def unauthorized(user_id: int, admin_name: str) -> str:
     )
 
 
-def help_text(name: str | None, target: str, source: str | None) -> str:
+def help_text(name: str | None, target: str, source: str | None, is_admin: bool = False) -> str:
     greeting = f"היי {escape(name)}! " if name else "היי! "
-    return (
+    text = (
         f"{greeting}אני ממיר מחירים למטבע שבחרת.\n"
         f"{_settings_line(target, source)}\n\n"
         "<b>איך משתמשים:</b>\n"
@@ -41,6 +41,7 @@ def help_text(name: str | None, target: str, source: str | None) -> str:
         "<code>/set פסו</code>\n"
         "/help - ההודעה הזו"
     )
+    return text + ADMIN_HELP if is_admin else text
 
 
 def _settings_line(target: str, source: str | None) -> str:
@@ -185,3 +186,80 @@ def confirm_setting(kind: str, code: str) -> str:
 
 def confirm_clear_source(source: str) -> str:
     return f"לבטל את מטבע המקור <b>{catalog.describe(source)}</b>?"
+
+
+# --- Admin commands (user management) ---
+
+ADMIN_HELP = (
+    "\n\n<b>ניהול משתמשים (אדמין):</b>\n"
+    "/add_user &lt;מזהה&gt; &lt;שם&gt; - הוספת משתמש מורשה\n"
+    "/remove_user &lt;מזהה&gt; - הסרת משתמש שנוסף כאן\n"
+    "/users - רשימת המשתמשים המורשים"
+)
+ADD_USER_USAGE = (
+    "שימוש: <code>/add_user &lt;מזהה&gt; &lt;שם&gt;</code>\n"
+    "למשל: <code>/add_user 123456789 דנה</code>\n"
+    "את המזהה המשתמש מקבל מהבוט כשהוא שולח לו הודעה ראשונה."
+)
+REMOVE_USER_USAGE = "שימוש: <code>/remove_user &lt;מזהה&gt;</code>\nלרשימת המשתמשים: /users"
+
+
+def user_added(user_id: int, name: str, notified: bool) -> str:
+    who = f"<b>{escape(name)}</b> (<code>{user_id}</code>)" if name else f"<code>{user_id}</code>"
+    text = f"✅ {who} נוסף/ה לרשימת המשתמשים המורשים."
+    if notified:
+        return text + "\nשלחתי לו/ה הודעה שאפשר להתחיל."
+    return (
+        text + "\nלא הצלחתי לשלוח לו/ה הודעה (כנראה עוד לא פתח/ה שיחה עם הבוט). "
+        "זה לא משנה: הגישה כבר פעילה."
+    )
+
+
+def user_already_manual(user_id: int) -> str:
+    return (
+        f"המשתמש <code>{user_id}</code> כבר מורשה דרך <code>allowed_users.json</code>. "
+        "את הקובץ הזה עורכים ידנית, לא שיניתי כלום."
+    )
+
+
+def user_removed(user_id: int, name: str | None) -> str:
+    who = f"<b>{escape(name)}</b> (<code>{user_id}</code>)" if name else f"<code>{user_id}</code>"
+    return f"🗑️ {who} הוסר/ה מרשימת המשתמשים המורשים."
+
+
+def user_remove_manual(user_id: int) -> str:
+    return (
+        f"המשתמש <code>{user_id}</code> מורשה דרך <code>allowed_users.json</code>, "
+        "שהבוט לא עורך. כדי להסיר אותו, ערכו את הקובץ ידנית."
+    )
+
+
+def user_not_found(user_id: int) -> str:
+    return f"המשתמש <code>{user_id}</code> לא ברשימת המורשים. לרשימה: /users"
+
+
+def welcome_added(name: str) -> str:
+    greeting = f"היי {escape(name)}! " if name else "היי! "
+    return f"{greeting}קיבלת גישה לבוט המרת המטבעות 🎉\nשלחו /help כדי לראות איך משתמשים."
+
+
+def users_list(manual: dict[int, str], added: dict[int, str], admins: frozenset[int]) -> str:
+    """All authorized users, grouped by where they are defined."""
+
+    def line(uid: int, name: str) -> str:
+        star = " ⭐" if uid in admins else ""
+        label = f"{escape(name)} · " if name else ""
+        return f"• {label}<code>{uid}</code>{star}"
+
+    lines = [f"<b>משתמשים מורשים ({len(manual.keys() | added.keys())})</b>"]
+    if manual:
+        lines.append("\n📝 <b>בקובץ allowed_users.json</b> (עריכה ידנית):")
+        lines += [line(uid, name) for uid, name in sorted(manual.items())]
+    only_added = {uid: n for uid, n in added.items() if uid not in manual}
+    if only_added:
+        lines.append("\n🤖 <b>נוספו דרך הבוט</b> (אפשר להסיר עם /remove_user):")
+        lines += [line(uid, name) for uid, name in sorted(only_added.items())]
+    if not manual and not only_added:
+        lines.append("אין עדיין משתמשים. הוספה: <code>/add_user &lt;מזהה&gt; &lt;שם&gt;</code>")
+    lines.append("\n⭐ = אדמין (תמיד מורשה, מוגדר ב-ADMIN_IDS)")
+    return "\n".join(lines)

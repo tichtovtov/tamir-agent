@@ -78,6 +78,7 @@ Open `.env` and set `TELEGRAM_BOT_TOKEN=` to the token from BotFather.
 ### 5. Add yourself as an authorized user
 Start the bot ([Running](#running)) and send it any message. You'll get a reply with your ID.
 Add it to `data/allowed_users.json` (see [Managing users](#managing-users)).
+Also put it in `ADMIN_IDS=` in `.env` so you can add other users from Telegram with `/add_user`.
 
 ## Running
 
@@ -110,6 +111,13 @@ The `data/allowed_users.json` file is **edited by hand**:
 - **No restart needed.** The bot detects the change automatically on the next message.
 - If the file has a JSON error, the bot keeps the previous list and logs an error.
 
+**From Telegram (admins only).** Put your Telegram ID in `ADMIN_IDS=` in `.env` (several IDs: comma separated) and restart. Then:
+- `/add_user 123456789 דנה`: allows the user and sends them a "you have access" message. If they never wrote to the bot, Telegram doesn't let the bot message them first, but access is active anyway.
+- `/remove_user 123456789`: removes a user added this way.
+- `/users`: lists all authorized users, by source.
+
+Users added from Telegram are saved in a separate file, `data/bot_users.json`. The bot **never writes `allowed_users.json`**, so your manual edits are safe, and `/remove_user` can't remove someone listed there (edit the file instead). Admins can always use the bot, even if they're not in either file. For anyone else, the admin commands act like an unknown command, and they don't appear in their command menu.
+
 The bot manages a separate file, `data/user_prefs.json`, where it stores each user's target currency and default source currency (`/from`). There's no need to edit it.
 
 ## Using the bot
@@ -134,6 +142,7 @@ All settings are in `.env`. Every variable has a comment in [.env.example](.env.
 |---|---|---|
 | `TELEGRAM_BOT_TOKEN` | (required) | Token from BotFather |
 | `ADMIN_NAME` | `אלעד` | Name shown to unauthorized users |
+| `ADMIN_IDS` | (empty) | Telegram IDs of admins, comma separated. Enables `/add_user`, `/remove_user`, `/users`; admins always pass the allow-list |
 | `DEFAULT_CURRENCY` | `ILS` | Target currency for new users |
 | `OLLAMA_URL` | `http://localhost:11434` | Ollama address (overridden automatically in Docker) |
 | `OLLAMA_MODEL` | `gemma3:12b` | Vision model (reading prices from images) |
